@@ -1,0 +1,15 @@
+{
+  "required": true,
+  "package": "pl.guildmark.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "CapeFeatureRendererMixin",
+    "ArmorFeatureRendererMixin",
+    "PlayerHeldItemFeatureRendererMixin",
+    "PlayerEntityModelMixin",
+    "ShieldModelRendererMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

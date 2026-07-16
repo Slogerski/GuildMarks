@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag and project version
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ROOT_VERSION="$(sed -n 's/^mod_version=//p' gradle.properties)"
+          NEXT_VERSION="$(sed -n 's/^mod_version=//p' versions/26.1.2/gradle.properties)"
+          test "$VERSION" = "$ROOT_VERSION"
+          test "$VERSION" = "$NEXT_VERSION"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      - uses: gradle/actions/setup-gradle@v4
+      - run: chmod +x gradlew
+      - run: ./gradlew clean remapJar --console=plain
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: gradle
+      - run: ./gradlew -p versions/26.1.2 clean jar --console=plain
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "${GITHUB_REF_NAME}" \
+            build/libs/GuildMark-1.21.8-*.jar \
+            versions/26.1.2/build/libs/GuildMark-26.1.2-*.jar \
+            --title "GuildMark ${VERSION}" \
+            --notes-file "release/modrinth/CHANGELOG-${VERSION}.md"

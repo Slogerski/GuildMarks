@@ -1,0 +1,19 @@
+{
+  "formatVersion": 2,
+  "guilds": [
+    {
+      "name": "Nebula",
+      "players": [
+        "Steve",
+        "Alex"
+      ],
+      "markUrl": "https://example.com/nebula.webp",
+      "relation": "ally",
+      "showOnChest": true,
+      "showOnCape": true,
+      "showOnShield": false,
+      "showOnElytra": false,
+      "showOnHelmet": true
+    }
+  ]
+}

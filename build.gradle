@@ -1,0 +1,33 @@
+plugins { id "fabric-loom" version "1.17.12" }
+
+group = project.mod_group
+version = project.mod_version
+
+base { archivesName = "GuildMark-${project.minecraft_version}" }
+
+repositories { maven { url = "https://maven.fabricmc.net/" }; mavenCentral() }
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    implementation include("com.twelvemonkeys.imageio:imageio-webp:3.13.1")
+    implementation include("com.twelvemonkeys.imageio:imageio-core:3.13.1")
+    implementation include("com.twelvemonkeys.common:common-image:3.13.1")
+    implementation include("com.twelvemonkeys.common:common-io:3.13.1")
+    implementation include("com.twelvemonkeys.common:common-lang:3.13.1")
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") { expand "version": project.version }
+}
+
+tasks.named("jar", Jar) {
+    from("LICENSE") { into("META-INF") }
+    from("NOTICE") { into("META-INF") }
+}
+
+tasks.withType(JavaCompile).configureEach { options.encoding = "UTF-8"; options.release = 21 }
+java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }

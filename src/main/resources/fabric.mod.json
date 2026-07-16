@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "guildmark",
+  "version": "${version}",
+  "name": "GuildMark",
+  "description": "Client-side guild cosmetics, relationship markers, local editing and HTTPS guild database imports.",
+  "authors": ["Slogerski"],
+  "icon": "assets/guildmark/icon.png",
+  "license": "Apache-2.0",
+  "environment": "client",
+  "entrypoints": { "client": ["pl.guildmark.GuildMarkClient"] },
+  "mixins": ["guildmark.mixins.json"],
+  "depends": { "fabricloader": ">=0.19.3", "minecraft": "1.21.8", "fabric-api": "*" }
+}

@@ -1,0 +1,31 @@
+# Gradle
+.gradle/
+build/
+**/build/
+**/.gradle/
+
+# Minecraft development runs
+run/
+**/run/
+logs/
+crash-reports/
+
+# IDE and OS files
+.idea/
+.vscode/
+.agents/
+.codex/
+*.iml
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local configuration and secrets
+.env
+.env.*
+config/
+
+# Built release artifacts (uploaded through GitHub Releases)
+release/modrinth/*.jar
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
