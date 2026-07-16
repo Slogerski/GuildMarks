@@ -29,3 +29,6 @@ config/
 release/modrinth/*.jar
 *.jar
 !gradle/wrapper/gradle-wrapper.jar
+
+# Local publishing helper
+/push-servers.bat

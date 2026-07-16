@@ -8,7 +8,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Locale;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
 import java.util.function.Predicate;
 import java.awt.image.BufferedImage;
@@ -25,16 +24,14 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.LivingEntity;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.StandardCopyOption;
 
 import static pl.guildmark.GuildMarkI18n.tr;
 
 public final class GuildMarkScreen extends Screen {
     private static final int UI_HEIGHT = 400;
+    private static final int[] RENDER_DISTANCES = {10, 16, 24, 32, 48, 64, 96, 128, 192, 256, 0};
+    private static final int[] PLAYER_LIMITS = {8, 16, 32, 64, 128, 0};
     private enum Page { MAP, SETTINGS, EDITOR, AUTO_IMPORT, AUTHOR }
-    private record ImportedMark(GuildData.Guild guild, BufferedImage image) {}
-    private record AutoImportResult(GuildData data, List<ImportedMark> marks) {}
     private final Screen parent;
     private Page page = Page.MAP;
     private int selectedGuild = -1;
@@ -42,12 +39,14 @@ public final class GuildMarkScreen extends Screen {
     private int editorGuildScroll;
     private String status = tr("Data is stored locally", "Dane zapisują się lokalnie");
     private EditBox guildInput, playerInput, urlInput, markSourceInput;
-    private CosmicButton chestToggleButton, helmetToggleButton, capeToggleButton, shieldToggleButton, elytraToggleButton;
+    private CosmicButton chestToggleButton, helmetToggleButton, capeToggleButton, shieldToggleButton, elytraToggleButton, autoUpdateButton;
     private boolean draggingModel;
     private boolean draggingEditorScrollbar;
     private boolean draggingOwnHeadHue;
     private boolean draggingAllyHeadHue;
     private boolean draggingBannerResolution;
+    private boolean draggingRenderDistance;
+    private boolean draggingPlayerLimit;
     private int autoImportRequest;
     private float modelYaw;
 
@@ -55,12 +54,13 @@ public final class GuildMarkScreen extends Screen {
 
     @Override protected void init() {
         String guildDraft = fieldText(guildInput), playerDraft = fieldText(playerInput);
-        String urlDraft = fieldText(urlInput), markSourceDraft = fieldText(markSourceInput);
+        String urlDraft = urlInput == null ? GuildMarkClient.SETTINGS.autoImportUrl() : fieldText(urlInput);
+        String markSourceDraft = fieldText(markSourceInput);
         int previousEditorGuildScroll = editorGuildScroll;
         clearWidgets();
         guildInput = null; playerInput = null; urlInput = null; markSourceInput = null;
-        draggingModel = false; draggingEditorScrollbar = false; draggingOwnHeadHue = false; draggingAllyHeadHue = false; draggingBannerResolution = false;
-        chestToggleButton = null; helmetToggleButton = null; capeToggleButton = null; shieldToggleButton = null; elytraToggleButton = null;
+        draggingModel = false; draggingEditorScrollbar = false; draggingOwnHeadHue = false; draggingAllyHeadHue = false; draggingBannerResolution = false; draggingRenderDistance = false; draggingPlayerLimit = false;
+        chestToggleButton = null; helmetToggleButton = null; capeToggleButton = null; shieldToggleButton = null; elytraToggleButton = null; autoUpdateButton = null;
         int left = Math.max(12, (width - 760) / 2), top = Math.max(12, (height - UI_HEIGHT) / 2);
         int navX = left + 18, navY = top + 186;
         addNav(tr("MAP", "MAPA"), Page.MAP, navX, navY);
@@ -114,6 +114,9 @@ public final class GuildMarkScreen extends Screen {
     private void initAutoImport(int x, int y) {
         urlInput = styledField(x, y + 44, 390, 22, tr("JSON address", "Adres JSON"), tr("https://your-domain.com/guilds.json", "https://twoja-domena.pl/guilds.json")); addRenderableWidget(urlInput);
         addRenderableWidget(new CosmicButton(x + 400, y + 44, 120, 22, Component.literal(tr("IMPORT JSON", "IMPORTUJ JSON")), CosmicButton.Style.EDITOR, false, this::autoImport));
+        autoUpdateButton = new CosmicButton(x, y + 78, 166, 22, Component.literal(""), CosmicButton.Style.EDITOR, false, this::toggleAutoUpdate);
+        addRenderableWidget(autoUpdateButton);
+        updateAutoUpdateButton();
     }
 
     private void initAuthor(int x, int y) {
@@ -158,7 +161,7 @@ public final class GuildMarkScreen extends Screen {
         if (page == Page.MAP) renderMap(c, left + 190, top + 58, right - 14, bottom - 40, mouseX, mouseY);
         if (page == Page.EDITOR) renderEditor(c, left + 190, top + 76, right - 14);
         if (page == Page.SETTINGS) renderSettings(c, left + 190, top + 148);
-        if (page == Page.AUTO_IMPORT) renderAutoImport(c, left + 190, top + 76);
+        if (page == Page.AUTO_IMPORT) renderAutoImport(c, left + 190, top + 76, mouseX, mouseY);
         if (page == Page.AUTHOR) renderAuthor(c, left + 190, top + 76);
         updatePlacementButtonLabels();
         super.extractRenderState(c, mouseX, mouseY, delta);
@@ -244,7 +247,7 @@ public final class GuildMarkScreen extends Screen {
 
     private void renderSettings(GuiGraphicsExtractor c, int x, int y) {
         int panelWidth = Math.max(300, Math.min(520, width - x - 24));
-        CosmicUi.editorPanel(c, x - 10, y - 80, panelWidth, 260);
+        CosmicUi.editorPanel(c, x - 10, y - 80, panelWidth, 300);
         c.text(font, Component.literal(tr("LANGUAGE", "JĘZYK")), x + 250, y - 70, 0xFF9F82C8);
         c.text(font, Component.literal(tr("File: config/guildmark/guilds.json", "Plik: config/guildmark/guilds.json")), x, y, 0xFFC6B2E8);
         c.text(font, Component.literal(tr("The export is readable JSON and preserves guild colors.", "Format eksportu jest czytelnym JSON-em i zachowuje kolory gildii.")), x, y + 20, 0xFF9889AA);
@@ -257,6 +260,12 @@ public final class GuildMarkScreen extends Screen {
         c.text(font, Component.literal(tr("BANNER RESOLUTION", "ROZDZIELCZOŚĆ BANNERÓW") + " · " + resolutionPercent(divisor) + " (÷" + divisor + ")"), x, y + 105, 0xFFB8A4CC);
         renderResolutionSlider(c, x, y + 121, 480, divisor);
         c.text(font, Component.literal(tr("Lower resolution uses less GPU memory. Source files stay unchanged.", "Niższa rozdzielczość zużywa mniej pamięci GPU. Pliki źródłowe bez zmian.")), x, y + 153, 0xFF8F829B);
+        int renderDistance = GuildMarkClient.SETTINGS.cosmeticRenderDistance();
+        int playerLimit = GuildMarkClient.SETTINGS.maxRenderedPlayers();
+        c.text(font, Component.literal(tr("RENDER DISTANCE", "ZASIĘG RENDEROWANIA") + " · " + renderDistanceLabel(renderDistance)), x, y + 178, 0xFFB8A4CC);
+        c.text(font, Component.literal(tr("NEAREST PLAYERS", "NAJBLIŻSI GRACZE") + " · " + playerLimitLabel(playerLimit)), x + 250, y + 178, 0xFFB8A4CC);
+        renderDistanceSlider(c, x, y + 194, 230, renderDistance);
+        renderPlayerLimitSlider(c, x + 250, y + 194, 230, playerLimit);
     }
 
     private void renderHueSlider(GuiGraphicsExtractor c, int x, int y, int w, int hue) {
@@ -286,6 +295,40 @@ public final class GuildMarkScreen extends Screen {
         }
         CosmicUi.roundedRect(c, knobX - 3, y, 7, 14, 3, 0xFFFFFFFF);
         CosmicUi.roundedRect(c, knobX - 1, y + 2, 3, 10, 1, 0xFF9B63D0);
+    }
+
+    private void renderDistanceSlider(GuiGraphicsExtractor c, int x, int y, int w, int blocks) {
+        int index = renderDistanceIndex(blocks), steps = RENDER_DISTANCES.length - 1;
+        CosmicUi.roundedRect(c, x, y, w, 14, 6, 0xFF4E3A61);
+        CosmicUi.roundedRect(c, x + 2, y + 2, w - 4, 10, 5, 0xFF17121E);
+        int innerStart = x + 5, innerWidth = w - 10;
+        int knobX = innerStart + Math.round(index * innerWidth / (float)steps);
+        if (knobX > innerStart) CosmicUi.roundedGradient(c, innerStart, y + 4, knobX - innerStart, 6, 3, 0xFF70B8E8, 0xFF7053B5);
+        for (int i = 0; i <= steps; i++) {
+            int tickX = innerStart + Math.round(i * innerWidth / (float)steps);
+            c.fill(tickX, y + 3, tickX + 1, y + 11, 0xFF8E789F);
+            String label = switch (i) { case 0 -> "10"; case 5 -> "64"; case 7 -> "128"; case 9 -> "256"; case 10 -> "∞"; default -> ""; };
+            if (!label.isEmpty()) c.centeredText(font, Component.literal(label), tickX, y + 18, i == index ? 0xFFE9DCFF : 0xFF80738B);
+        }
+        CosmicUi.roundedRect(c, knobX - 3, y, 7, 14, 3, 0xFFFFFFFF);
+        CosmicUi.roundedRect(c, knobX - 1, y + 2, 3, 10, 1, 0xFF6AAFE0);
+    }
+
+    private void renderPlayerLimitSlider(GuiGraphicsExtractor c, int x, int y, int w, int players) {
+        int index = playerLimitIndex(players), steps = PLAYER_LIMITS.length - 1;
+        CosmicUi.roundedRect(c, x, y, w, 14, 6, 0xFF4E3A61);
+        CosmicUi.roundedRect(c, x + 2, y + 2, w - 4, 10, 5, 0xFF17121E);
+        int innerStart = x + 5, innerWidth = w - 10;
+        int knobX = innerStart + Math.round(index * innerWidth / (float)steps);
+        if (knobX > innerStart) CosmicUi.roundedGradient(c, innerStart, y + 4, knobX - innerStart, 6, 3, 0xFFB274E2, 0xFF7046A0);
+        for (int i = 0; i <= steps; i++) {
+            int tickX = innerStart + Math.round(i * innerWidth / (float)steps);
+            c.fill(tickX, y + 3, tickX + 1, y + 11, 0xFF8E789F);
+            String label = i == steps ? "∞" : Integer.toString(PLAYER_LIMITS[i]);
+            c.centeredText(font, Component.literal(label), tickX, y + 18, i == index ? 0xFFE9DCFF : 0xFF80738B);
+        }
+        CosmicUi.roundedRect(c, knobX - 3, y, 7, 14, 3, 0xFFFFFFFF);
+        CosmicUi.roundedRect(c, knobX - 1, y + 2, 3, 10, 1, 0xFFA96DDA);
     }
 
     private List<Integer> filteredGuildIndices() {
@@ -323,11 +366,16 @@ public final class GuildMarkScreen extends Screen {
         c.blit(texture.original(), drawX, drawY, drawX + drawW, drawY + drawH, 0f, 1f, 0f, 1f);
     }
 
-    private void renderAutoImport(GuiGraphicsExtractor c, int x, int y) {
+    private void renderAutoImport(GuiGraphicsExtractor c, int x, int y, int mouseX, int mouseY) {
         int panelWidth = Math.max(300, Math.min(540, width - x - 24));
-        CosmicUi.editorPanel(c, x - 10, y - 12, panelWidth, 112);
+        CosmicUi.editorPanel(c, x - 10, y - 12, panelWidth, 126);
         c.text(font, Component.literal(tr("Import guilds and their marks from a JSON URL", "Importuj gildie i ich znaki z adresu JSON")), x, y, 0xFFDCCCF7);
-        c.text(font, Component.literal(tr("HTTPS only. markUrl images are downloaded and stored locally.", "Tylko HTTPS. Grafiki markUrl zostaną pobrane i zapisane lokalnie.")), x, y + 78, 0xFF998BA9);
+        if (autoUpdateButton != null && autoUpdateButton.isHovered()) {
+            c.text(font, Component.literal(tr("Checks at Minecraft startup and downloads updates", "Sprawdza przy starcie Minecrafta i pobiera aktualizacje")), x + 176, y + 76, 0xFFDCCCF7);
+            c.text(font, Component.literal(tr("at most once every 24 hours.", "najwyżej raz na 24 godziny.")), x + 176, y + 89, 0xFFAA96BB);
+        } else {
+            c.text(font, Component.literal(tr("HTTPS only. Images are downloaded and stored locally.", "Tylko HTTPS. Grafiki są pobierane i zapisywane lokalnie.")), x + 176, y + 83, 0xFF998BA9);
+        }
     }
 
     private void renderAuthor(GuiGraphicsExtractor c, int x, int y) {
@@ -429,7 +477,7 @@ public final class GuildMarkScreen extends Screen {
             URI uri = URI.create(raw);
             if (!"https".equalsIgnoreCase(uri.getScheme())) throw new IllegalArgumentException(tr("an HTTPS link is required", "wymagany jest link HTTPS"));
             GuildData.Guild targetGuild = GuildMarkClient.STORE.data().guilds.get(selectedGuild); status = tr("Downloading image…", "Pobieranie grafiki…");
-            HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(15)).header("Accept", "image/webp,image/png,image/jpeg,image/*").header("User-Agent", "GuildMark/1.0.1 Minecraft/26.1.2").GET().build();
+            HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(15)).header("Accept", "image/webp,image/png,image/jpeg,image/*").header("User-Agent", "GuildMark/1.0.2 Minecraft/26.1.2").GET().build();
             HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(6)).followRedirects(HttpClient.Redirect.NORMAL).build()
                 .sendAsync(request, HttpResponse.BodyHandlers.ofByteArray()).thenAccept(response -> minecraft.execute(() -> {
                     try {
@@ -515,84 +563,37 @@ public final class GuildMarkScreen extends Screen {
     private void autoImport() {
         String raw = urlInput.getValue().trim();
         try {
-            URI uri = URI.create(raw); if (!"https".equalsIgnoreCase(uri.getScheme())) throw new IllegalArgumentException(tr("an HTTPS address is required", "wymagany jest adres HTTPS"));
+            String url = GuildAutoImporter.normalizeUrl(raw);
+            GuildMarkClient.SETTINGS.setAutoImportUrl(url);
+            urlInput.setValue(url);
             int requestId = ++autoImportRequest;
             status = tr("Auto Import: downloading JSON…", "Auto Import: pobieranie JSON…");
-            HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(6)).followRedirects(HttpClient.Redirect.NORMAL).build();
-            HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(15)).header("Accept", "application/json").header("User-Agent", "GuildMark/1.0.1 Minecraft/26.1.2").GET().build();
-            http.sendAsync(request, HttpResponse.BodyHandlers.ofByteArray())
-                .thenCompose(response -> prepareAutoImport(http, response))
-                .thenAccept(result -> minecraft.execute(() -> { if (requestId == autoImportRequest) commitAutoImport(result); }))
-                .exceptionally(error -> { minecraft.execute(() -> { if (requestId == autoImportRequest) status = tr("Auto Import error: ", "Błąd Auto Import: ") + shorten(rootMessage(error), 52); }); return null; });
+            GuildAutoImporter.start(url, summary -> {
+                if (requestId != autoImportRequest) return;
+                GuildMarkClient.SETTINGS.recordAutoUpdateAttempt(System.currentTimeMillis());
+                selectedGuild = -1;
+                status = tr("Auto Import complete: ", "Auto Import zakończony: ") + summary.guilds()
+                    + tr(" guilds, ", " gildii, ") + summary.images() + tr(" images", " grafik");
+            }, error -> {
+                if (requestId == autoImportRequest)
+                    status = tr("Auto Import error: ", "Błąd Auto Import: ") + shorten(rootMessage(error), 52);
+            });
         } catch (Exception e) { status = tr("Error: ", "Błąd: ") + e.getMessage(); }
     }
 
-    private CompletableFuture<AutoImportResult> prepareAutoImport(HttpClient http, HttpResponse<byte[]> response) {
-        try {
-            if (response.statusCode() / 100 != 2) throw new IllegalStateException("HTTP " + response.statusCode());
-            if (response.body().length > 1_000_000) throw new IllegalStateException(tr("JSON exceeds 1 MB", "JSON przekracza 1 MB"));
-            GuildData incoming = GuildMarkClient.STORE.parseJson(new String(response.body(), java.nio.charset.StandardCharsets.UTF_8));
-            List<CompletableFuture<ImportedMark>> downloads = new ArrayList<>();
-            for (GuildData.Guild guild : incoming.guilds) {
-                if (guild.markUrl == null || guild.markUrl.isBlank()) continue;
-                URI markUri = URI.create(guild.markUrl);
-                HttpRequest markRequest = HttpRequest.newBuilder(markUri).timeout(Duration.ofSeconds(20))
-                    .header("Accept", "image/webp,image/png,image/jpeg,image/*")
-                    .header("User-Agent", "GuildMark/1.0.1 Minecraft/26.1.2").GET().build();
-                downloads.add(http.sendAsync(markRequest, HttpResponse.BodyHandlers.ofByteArray()).thenApply(markResponse -> {
-                    try {
-                        if (markResponse.statusCode() / 100 != 2) throw new IllegalStateException(guild.name + ": HTTP " + markResponse.statusCode());
-                        if (markResponse.body().length > 5_000_000) throw new IllegalStateException(guild.name + tr(": image exceeds 5 MB", ": grafika przekracza 5 MB"));
-                        return new ImportedMark(guild, readImage(markResponse.body()));
-                    } catch (Exception error) { throw new java.util.concurrent.CompletionException(error); }
-                }));
-            }
-            CompletableFuture<Void> all = CompletableFuture.allOf(downloads.toArray(CompletableFuture[]::new));
-            return all.thenApply(ignored -> new AutoImportResult(incoming, downloads.stream().map(CompletableFuture::join).toList()));
-        } catch (Exception error) {
-            return CompletableFuture.failedFuture(error);
-        }
+    private void toggleAutoUpdate() {
+        boolean enabled = !GuildMarkClient.SETTINGS.autoUpdateEnabled();
+        GuildMarkClient.SETTINGS.setAutoUpdateEnabled(enabled);
+        updateAutoUpdateButton();
+        status = enabled ? tr("Automatic daily updates enabled", "Włączono codzienne automatyczne aktualizacje")
+            : tr("Automatic updates disabled", "Wyłączono automatyczne aktualizacje");
     }
 
-    private void commitAutoImport(AutoImportResult result) {
-        List<Path> staged = new ArrayList<>();
-        List<String> oldMarks = GuildMarkClient.STORE.data().guilds.stream().map(g -> g.markFile).filter(file -> file != null && !file.isBlank()).toList();
-        try {
-            Path root = markRoot();
-            Files.createDirectories(root);
-            List<String> targetFiles = new ArrayList<>();
-            java.util.Set<String> uniqueFiles = new java.util.HashSet<>();
-            for (ImportedMark imported : result.marks()) {
-                validateImageSize(imported.image());
-                String file = markFileName(imported.guild().name);
-                if (!uniqueFiles.add(file.toLowerCase(Locale.ROOT))) throw new IllegalStateException(tr("Guild names create the same mark filename", "Nazwy gildii tworzą tę samą nazwę pliku znaku"));
-                Path temp = Files.createTempFile(root, ".guildmark-auto-import-", ".png");
-                if (!ImageIO.write(imported.image(), "PNG", temp.toFile())) throw new IllegalStateException(tr("PNG encoder unavailable", "brak kodera PNG"));
-                staged.add(temp);
-                targetFiles.add(file);
-            }
-            for (int i = 0; i < result.marks().size(); i++) {
-                ImportedMark imported = result.marks().get(i);
-                String file = targetFiles.get(i);
-                moveReplacing(staged.get(i), resolveMarkFile(file));
-                imported.guild().markFile = file;
-                imported.guild().markPath = "GuildMark/Guilds/" + file;
-            }
-            GuildMarkClient.STORE.importData(result.data());
-            selectedGuild = -1;
-            oldMarks.forEach(GuildMarkTextures::invalidate);
-            result.data().guilds.stream().map(g -> g.markFile).filter(file -> file != null && !file.isBlank()).forEach(GuildMarkTextures::invalidate);
-            status = tr("Auto Import complete: ", "Auto Import zakończony: ") + result.data().guilds.size() + tr(" guilds, ", " gildii, ") + result.marks().size() + tr(" images", " grafik");
-        } catch (Exception error) {
-            status = tr("Auto Import error: ", "Błąd Auto Import: ") + shorten(rootMessage(error), 52);
-        } finally {
-            for (Path temp : staged) try { Files.deleteIfExists(temp); } catch (Exception ignored) { }
-        }
-    }
-
-    private static void moveReplacing(Path source, Path target) throws Exception {
-        try { Files.move(source, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
-        catch (AtomicMoveNotSupportedException ignored) { Files.move(source, target, StandardCopyOption.REPLACE_EXISTING); }
+    private void updateAutoUpdateButton() {
+        if (autoUpdateButton == null) return;
+        boolean enabled = GuildMarkClient.SETTINGS.autoUpdateEnabled();
+        autoUpdateButton.setMessage(Component.literal(tr("AUTO UPDATE: ", "AUTO AKTUALIZACJA: ") + (enabled ? tr("ON", "WŁ.") : tr("OFF", "WYŁ."))));
+        autoUpdateButton.setTextColor(enabled ? 0xFF6CF09A : 0xFFFF6579);
     }
 
     @Override public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
@@ -611,6 +612,13 @@ public final class GuildMarkScreen extends Screen {
             int resolutionY = top + 269;
             if (mx >= left + 190 && mx <= left + 670 && my >= resolutionY && my <= resolutionY + 14) {
                 draggingBannerResolution = true; updateBannerResolution(mx, left + 190); return true;
+            }
+            int renderDistanceY = top + 342;
+            if (mx >= left + 190 && mx <= left + 420 && my >= renderDistanceY && my <= renderDistanceY + 14) {
+                draggingRenderDistance = true; updateRenderDistance(mx, left + 190); return true;
+            }
+            if (mx >= left + 440 && mx <= left + 670 && my >= renderDistanceY && my <= renderDistanceY + 14) {
+                draggingPlayerLimit = true; updatePlayerLimit(mx, left + 440); return true;
             }
         }
         if (page == Page.EDITOR && button == 0 && mx >= left + 361 && mx <= left + 369 && my >= top + 114 && my <= top + 202 && filteredGuildIndices().size() > 4) {
@@ -658,6 +666,16 @@ public final class GuildMarkScreen extends Screen {
             updateBannerResolution(mx, left + 190);
             return true;
         }
+        if (draggingRenderDistance && button == 0) {
+            int left = Math.max(12, (width - 760) / 2);
+            updateRenderDistance(mx, left + 190);
+            return true;
+        }
+        if (draggingPlayerLimit && button == 0) {
+            int left = Math.max(12, (width - 760) / 2);
+            updatePlayerLimit(mx, left + 440);
+            return true;
+        }
         if ((draggingOwnHeadHue || draggingAllyHeadHue) && button == 0) {
             int left = Math.max(12, (width - 760) / 2);
             updateHeadHue(mx, draggingOwnHeadHue ? left + 190 : left + 440, draggingOwnHeadHue);
@@ -669,12 +687,16 @@ public final class GuildMarkScreen extends Screen {
     @Override public boolean mouseReleased(MouseButtonEvent event) {
         boolean savedHue = draggingOwnHeadHue || draggingAllyHeadHue;
         boolean savedResolution = draggingBannerResolution;
-        draggingModel = false; draggingEditorScrollbar = false; draggingOwnHeadHue = false; draggingAllyHeadHue = false; draggingBannerResolution = false;
-        if (savedHue || savedResolution) {
+        boolean savedRenderDistance = draggingRenderDistance;
+        boolean savedPlayerLimit = draggingPlayerLimit;
+        draggingModel = false; draggingEditorScrollbar = false; draggingOwnHeadHue = false; draggingAllyHeadHue = false; draggingBannerResolution = false; draggingRenderDistance = false; draggingPlayerLimit = false;
+        if (savedHue || savedResolution || savedRenderDistance || savedPlayerLimit) {
             GuildMarkClient.SETTINGS.persist();
             if (savedHue) GuildHeadMarker.invalidateTextures();
             if (savedResolution) GuildMarkTextures.invalidateAll();
-            status = savedResolution ? tr("Banner resolution limit saved", "Zapisano limit rozdzielczości bannerów") : tr("Head marker colors saved", "Zapisano kolory kostki na głowie");
+            status = savedPlayerLimit ? tr("Nearest-player limit saved", "Zapisano limit najbliższych graczy")
+                : savedRenderDistance ? tr("Render distance saved", "Zapisano zasięg renderowania")
+                : savedResolution ? tr("Banner resolution limit saved", "Zapisano limit rozdzielczości bannerów") : tr("Head marker colors saved", "Zapisano kolory kostki na głowie");
             return true;
         }
         return super.mouseReleased(event);
@@ -708,6 +730,16 @@ public final class GuildMarkScreen extends Screen {
     private void updateBannerResolution(double mouseX, int sliderX) {
         int index = clamp((int)Math.round((mouseX - sliderX - 5) * 6.0 / 470.0), 0, 6);
         GuildMarkClient.SETTINGS.setBannerResolutionDivisor(1 << index);
+    }
+    private void updateRenderDistance(double mouseX, int sliderX) {
+        int index = clamp((int)Math.round((mouseX - sliderX - 5) * (RENDER_DISTANCES.length - 1) / 220.0), 0, RENDER_DISTANCES.length - 1);
+        GuildMarkClient.SETTINGS.setCosmeticRenderDistance(RENDER_DISTANCES[index]);
+        GuildRenderLimiter.invalidate();
+    }
+    private void updatePlayerLimit(double mouseX, int sliderX) {
+        int index = clamp((int)Math.round((mouseX - sliderX - 5) * (PLAYER_LIMITS.length - 1) / 220.0), 0, PLAYER_LIMITS.length - 1);
+        GuildMarkClient.SETTINGS.setMaxRenderedPlayers(PLAYER_LIMITS[index]);
+        GuildRenderLimiter.invalidate();
     }
     @Override public void onClose() { if (minecraft != null) minecraft.setScreen(parent); }
     @Override public boolean isPauseScreen() { return false; }
@@ -769,6 +801,16 @@ public final class GuildMarkScreen extends Screen {
     private static String fieldText(EditBox field) { return field == null ? "" : field.getValue(); }
     private static int divisorIndex(int divisor) { return switch (divisor) { case 2 -> 1; case 4 -> 2; case 8 -> 3; case 16 -> 4; case 32 -> 5; case 64 -> 6; default -> 0; }; }
     private static String resolutionPercent(int divisor) { return switch (divisor) { case 2 -> "50%"; case 4 -> "25%"; case 8 -> "12.5%"; case 16 -> "6.25%"; case 32 -> "3.13%"; case 64 -> "1.56%"; default -> "100%"; }; }
+    private static int renderDistanceIndex(int blocks) {
+        for (int i = 0; i < RENDER_DISTANCES.length; i++) if (RENDER_DISTANCES[i] == blocks) return i;
+        return 7;
+    }
+    private static String renderDistanceLabel(int blocks) { return blocks == 0 ? tr("UNLIMITED", "BEZ LIMITU") : blocks + tr(" blocks", " bloków"); }
+    private static int playerLimitIndex(int players) {
+        for (int i = 0; i < PLAYER_LIMITS.length; i++) if (PLAYER_LIMITS[i] == players) return i;
+        return 3;
+    }
+    private static String playerLimitLabel(int players) { return players == 0 ? tr("UNLIMITED", "BEZ LIMITU") : Integer.toString(players); }
     private static String rootMessage(Throwable error) {
         Throwable current = error; while (current.getCause() != null && current.getCause() != current) current = current.getCause();
         return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();

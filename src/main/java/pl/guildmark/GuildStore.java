@@ -12,7 +12,9 @@ import java.nio.file.Path;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.StandardCopyOption;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 import static pl.guildmark.GuildMarkI18n.tr;
@@ -21,9 +23,13 @@ public final class GuildStore {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private final Path path = FabricLoader.getInstance().getConfigDir().resolve("guildmark/guilds.json");
     private GuildData data = new GuildData();
+    private Map<String, GuildData.Guild> guildByPlayer = Map.of();
 
     public GuildStore() { load(); }
     public GuildData data() { return data; }
+    public GuildData.Guild guildForPlayer(String playerName) {
+        return playerName == null ? null : guildByPlayer.get(playerName.toLowerCase(Locale.ROOT));
+    }
     public String json() { return GSON.toJson(data); }
 
     public void load() {
@@ -32,6 +38,7 @@ public final class GuildStore {
                 GuildData loaded = GSON.fromJson(Files.readString(path), GuildData.class);
                 validate(loaded);
                 data = loaded;
+                rebuildPlayerIndex();
             }
             else save();
         } catch (IOException | JsonParseException | IllegalArgumentException e) { GuildMarkClient.LOGGER.error("Cannot load {}", path, e); }
@@ -51,6 +58,7 @@ public final class GuildStore {
         validate(incoming);
         write(incoming);
         data = incoming;
+        rebuildPlayerIndex();
     }
 
     private void validate(GuildData incoming) {
@@ -95,7 +103,17 @@ public final class GuildStore {
     }
 
     public void save() {
+        validate(data);
         write(data);
+        rebuildPlayerIndex();
+    }
+
+    private void rebuildPlayerIndex() {
+        Map<String, GuildData.Guild> index = new HashMap<>();
+        for (GuildData.Guild guild : data.guilds)
+            for (String player : guild.players) index.put(player.toLowerCase(Locale.ROOT), guild);
+        guildByPlayer = Map.copyOf(index);
+        GuildRenderLimiter.invalidate();
     }
 
     private void write(GuildData value) {

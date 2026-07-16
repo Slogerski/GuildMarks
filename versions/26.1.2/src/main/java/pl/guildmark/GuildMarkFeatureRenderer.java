@@ -21,10 +21,18 @@ public final class GuildMarkFeatureRenderer extends RenderLayer<AvatarRenderStat
     }
     public static GuildData.Guild guildFor(String playerName) {
         if (GuildMarkClient.STORE == null || playerName == null) return null;
-        return GuildMarkClient.STORE.data().guilds.stream()
-            .filter(g -> g.players.stream().anyMatch(n -> n.equalsIgnoreCase(playerName))).findFirst().orElse(null);
+        return GuildMarkClient.STORE.guildForPlayer(playerName);
+    }
+    public static boolean isWithinRenderDistance(AvatarRenderState state) {
+        if (GuildMarkClient.SETTINGS == null) return true;
+        int blocks = GuildMarkClient.SETTINGS.cosmeticRenderDistance();
+        return blocks == 0 || state.distanceToCameraSq <= (double) blocks * blocks;
+    }
+    public static boolean shouldRenderCosmetics(AvatarRenderState state) {
+        return isWithinRenderDistance(state) && GuildRenderLimiter.shouldRender(playerName(state));
     }
     public static boolean overridesVanillaCape(AvatarRenderState state) {
+        if (!shouldRenderCosmetics(state)) return false;
         GuildData.Guild guild = guildFor(playerName(state));
         return guild != null && guild.showOnCape && GuildMarkTextures.get(guild.markFile) != null;
     }
@@ -32,7 +40,7 @@ public final class GuildMarkFeatureRenderer extends RenderLayer<AvatarRenderStat
         return ((GuildMarkAvatarState) state).guildmark$getPlayerName();
     }
     @Override public void submit(PoseStack matrices, SubmitNodeCollector collector, int light, AvatarRenderState state, float limbAngle, float limbDistance) {
-        if (state.isInvisible) return;
+        if (state.isInvisible || !shouldRenderCosmetics(state)) return;
         String playerName = playerName(state);
         GuildData.Guild guild = guildFor(playerName);
         if (guild == null) return;

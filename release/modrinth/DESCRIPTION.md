@@ -17,6 +17,9 @@ Create and manage a private guild list through the built-in interface, or import
 - Image loading from files, links and the clipboard
 - JSON import and export through the clipboard
 - Automatic guild database import from HTTPS
+- Optional daily guild database updates at Minecraft startup
+- Configurable cosmetic render distance and bounded shared texture cache
+- Configurable nearest-player cosmetic limit for crowded servers
 - English and Polish interface
 - Fully client-side
 
@@ -36,6 +39,8 @@ A remote entry can be as simple as:
 ```
 
 After importing, GuildMark stores the source URL together with the generated local filename and path. If any required file fails to download or validate, the existing guild list remains active.
+
+The saved URL can also be checked automatically when Minecraft starts. Auto Update is enabled by default and runs at most once every 24 hours. It works in the background, so it does not block the main menu or joining a server.
 
 ## Local files
 

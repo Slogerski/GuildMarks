@@ -14,12 +14,14 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 public final class GuildMarkTextures {
     public record Pair(Identifier original, int width, int height) {}
-    private static final Map<String, Pair> CACHE = new HashMap<>();
+    private static final int MAX_CACHED_TEXTURES = 128;
+    private static final long MAX_CACHE_BYTES = 256L * 1024L * 1024L;
+    private static final Map<String, Pair> CACHE = new LinkedHashMap<>(16, 0.75F, true);
     private GuildMarkTextures() {}
 
     public static void invalidate(String file) {
@@ -41,8 +43,23 @@ public final class GuildMarkTextures {
             int divisor = GuildMarkClient.SETTINGS == null ? 1 : GuildMarkClient.SETTINGS.bannerResolutionDivisor();
             BufferedImage renderImage = downscale(logo, divisor);
             String key = Integer.toHexString(file.hashCode());
-            Pair pair = new Pair(register("mark_original_" + key, renderImage), renderImage.getWidth(), renderImage.getHeight()); CACHE.put(file, pair); return pair;
+            Pair pair = new Pair(register("mark_original_" + key, renderImage), renderImage.getWidth(), renderImage.getHeight());
+            CACHE.put(file, pair);
+            evictOldTextures();
+            return pair;
         } catch (Exception e) { GuildMarkClient.LOGGER.warn("Cannot load guild mark {}", file, e); return null; }
+    }
+    private static void evictOldTextures() {
+        long bytes = CACHE.values().stream().mapToLong(pair -> (long) pair.width() * pair.height() * 4L).sum();
+        var iterator = CACHE.entrySet().iterator();
+        var textureManager = Minecraft.getInstance().getTextureManager();
+        while (CACHE.size() > 1 && (CACHE.size() > MAX_CACHED_TEXTURES || bytes > MAX_CACHE_BYTES) && iterator.hasNext()) {
+            var entry = iterator.next();
+            Pair removed = entry.getValue();
+            bytes -= (long) removed.width() * removed.height() * 4L;
+            iterator.remove();
+            textureManager.release(removed.original());
+        }
     }
     private static BufferedImage downscale(BufferedImage source, int divisor) {
         if (divisor <= 1) return source;

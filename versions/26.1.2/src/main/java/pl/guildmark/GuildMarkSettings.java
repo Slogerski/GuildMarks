@@ -11,6 +11,7 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.StandardCopyOption;
 
 public final class GuildMarkSettings {
+    private static final long AUTO_UPDATE_INTERVAL_MILLIS = 24L * 60L * 60L * 1000L;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private final Path path = FabricLoader.getInstance().getConfigDir().resolve("guildmark/settings.json");
     private Data data = new Data();
@@ -22,6 +23,10 @@ public final class GuildMarkSettings {
     public int ownHeadHue() { return normalizeHue(data.ownHeadHue); }
     public int allyHeadHue() { return normalizeHue(data.allyHeadHue); }
     public int bannerResolutionDivisor() { return normalizeDivisor(data.bannerResolutionDivisor); }
+    public int cosmeticRenderDistance() { return normalizeRenderDistance(data.cosmeticRenderDistance); }
+    public int maxRenderedPlayers() { return normalizePlayerLimit(data.maxRenderedPlayers); }
+    public String autoImportUrl() { return data.autoImportUrl == null ? "" : data.autoImportUrl; }
+    public boolean autoUpdateEnabled() { return data.autoUpdateEnabled; }
     public int ownHeadColor() { return colorForHue(ownHeadHue(), 0.94F); }
     public int allyHeadColor() { return colorForHue(allyHeadHue(), 1.0F); }
 
@@ -35,6 +40,15 @@ public final class GuildMarkSettings {
     public void setOwnHeadHue(int hue) { data.ownHeadHue = normalizeHue(hue); }
     public void setAllyHeadHue(int hue) { data.allyHeadHue = normalizeHue(hue); }
     public void setBannerResolutionDivisor(int divisor) { data.bannerResolutionDivisor = normalizeDivisor(divisor); }
+    public void setCosmeticRenderDistance(int blocks) { data.cosmeticRenderDistance = normalizeRenderDistance(blocks); }
+    public void setMaxRenderedPlayers(int players) { data.maxRenderedPlayers = normalizePlayerLimit(players); }
+    public void setAutoImportUrl(String url) { data.autoImportUrl = url == null ? "" : url.strip(); save(); }
+    public void setAutoUpdateEnabled(boolean enabled) { data.autoUpdateEnabled = enabled; save(); }
+    public boolean autoUpdateDue(long now) {
+        long previous = data.lastAutoUpdateEpochMillis;
+        return data.autoUpdateEnabled && !autoImportUrl().isBlank() && (previous <= 0L || now < previous || now - previous >= AUTO_UPDATE_INTERVAL_MILLIS);
+    }
+    public void recordAutoUpdateAttempt(long now) { data.lastAutoUpdateEpochMillis = Math.max(0L, now); save(); }
     public void persist() { save(); }
 
     public static int previewHueColor(int hue) { return colorForHue(normalizeHue(hue), 1.0F); }
@@ -42,6 +56,12 @@ public final class GuildMarkSettings {
     private static int normalizeHue(int hue) { return Math.floorMod(hue, 360); }
     private static int normalizeDivisor(int divisor) {
         return switch (divisor) { case 2 -> 2; case 4 -> 4; case 8 -> 8; case 16 -> 16; case 32 -> 32; case 64 -> 64; default -> 1; };
+    }
+    private static int normalizeRenderDistance(int blocks) {
+        return switch (blocks) { case 10, 16, 24, 32, 48, 64, 96, 128, 192, 256 -> blocks; case 0 -> 0; default -> 128; };
+    }
+    private static int normalizePlayerLimit(int players) {
+        return switch (players) { case 8, 16, 32, 64, 128 -> players; case 0 -> 0; default -> 64; };
     }
 
     private static int colorForHue(int hue, float brightness) {
@@ -54,10 +74,17 @@ public final class GuildMarkSettings {
             if (Files.exists(path)) {
                 Data loaded = GSON.fromJson(Files.readString(path), Data.class);
                 if (loaded != null) data = loaded;
+                if (data.formatVersion < 4) data.autoUpdateEnabled = true;
+                if (data.formatVersion < 5) data.cosmeticRenderDistance = 128;
+                if (data.formatVersion < 6) data.maxRenderedPlayers = 64;
+                data.formatVersion = 6;
                 data.language = "pl".equalsIgnoreCase(data.language) ? "pl" : "en";
                 data.ownHeadHue = normalizeHue(data.ownHeadHue);
                 data.allyHeadHue = normalizeHue(data.allyHeadHue);
                 data.bannerResolutionDivisor = normalizeDivisor(data.bannerResolutionDivisor);
+                data.cosmeticRenderDistance = normalizeRenderDistance(data.cosmeticRenderDistance);
+                data.maxRenderedPlayers = normalizePlayerLimit(data.maxRenderedPlayers);
+                if (data.autoImportUrl == null) data.autoImportUrl = "";
             } else save();
         } catch (Exception error) {
             data = new Data();
@@ -81,10 +108,15 @@ public final class GuildMarkSettings {
     }
 
     private static final class Data {
-        int formatVersion = 3;
+        int formatVersion = 6;
         String language = "en";
         int ownHeadHue = 136;
         int allyHeadHue = 49;
         int bannerResolutionDivisor = 1;
+        int cosmeticRenderDistance = 128;
+        int maxRenderedPlayers = 64;
+        String autoImportUrl = "";
+        boolean autoUpdateEnabled = true;
+        long lastAutoUpdateEpochMillis;
     }
 }

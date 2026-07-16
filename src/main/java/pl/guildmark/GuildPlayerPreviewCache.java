@@ -61,7 +61,7 @@ public final class GuildPlayerPreviewCache {
     private static java.util.concurrent.CompletableFuture<GameProfile> fetchProfile(String nickname) {
         String encoded = URLEncoder.encode(nickname, StandardCharsets.UTF_8);
         HttpRequest request = HttpRequest.newBuilder(URI.create("https://api.mojang.com/users/profiles/minecraft/" + encoded))
-            .timeout(Duration.ofSeconds(8)).header("Accept", "application/json").header("User-Agent", "GuildMark/1.0.1").GET().build();
+            .timeout(Duration.ofSeconds(8)).header("Accept", "application/json").header("User-Agent", "GuildMark/1.0.2").GET().build();
         return HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString()).thenApplyAsync(response -> {
             if (response.statusCode() / 100 != 2 || response.body().isBlank()) return null;
             JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();

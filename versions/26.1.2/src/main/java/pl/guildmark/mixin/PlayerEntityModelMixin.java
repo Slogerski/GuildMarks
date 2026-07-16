@@ -14,7 +14,8 @@ public abstract class PlayerEntityModelMixin {
     @Inject(method = "setupAnim(Lnet/minecraft/client/renderer/entity/state/AvatarRenderState;)V", at = @At("TAIL"))
     private void guildmark$hideAllyHead(AvatarRenderState state, CallbackInfo callback) {
         PlayerModel model = (PlayerModel)(Object)this;
-        boolean marked = GuildHeadMarker.kind(GuildMarkFeatureRenderer.playerName(state)) != GuildHeadMarker.Kind.NONE;
+        boolean marked = GuildMarkFeatureRenderer.shouldRenderCosmetics(state)
+            && GuildHeadMarker.kind(GuildMarkFeatureRenderer.playerName(state)) != GuildHeadMarker.Kind.NONE;
         model.head.visible = !marked;
         model.hat.visible = !marked && state.showHat;
     }

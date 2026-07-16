@@ -23,6 +23,7 @@ public final class GuildMarkClient implements ClientModInitializer {
     public static GuildStore STORE;
     public static GuildMarkSettings SETTINGS;
     private static KeyBinding openKey;
+    private static boolean startupUpdateChecked;
 
     @Override public void onInitializeClient() {
         SETTINGS = new GuildMarkSettings();
@@ -32,7 +33,14 @@ public final class GuildMarkClient implements ClientModInitializer {
             if (renderer instanceof PlayerEntityRenderer playerRenderer) helper.register(new GuildMarkFeatureRenderer(playerRenderer, context));
         });
         openKey = KeyBindingHelper.registerKeyBinding(new KeyBinding("key.guildmark.open", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_G, "category.guildmark"));
-        ClientTickEvents.END_CLIENT_TICK.register(client -> { while (openKey.wasPressed()) client.setScreen(new GuildMarkScreen(client.currentScreen)); });
+        ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            GuildRenderLimiter.tick(client);
+            if (!startupUpdateChecked) {
+                startupUpdateChecked = true;
+                startAutomaticUpdate();
+            }
+            while (openKey.wasPressed()) client.setScreen(new GuildMarkScreen(client.currentScreen));
+        });
         ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> {
             if (!(screen instanceof OptionsScreen)) return;
             var buttons = Screens.getButtons(screen);
@@ -43,5 +51,16 @@ public final class GuildMarkClient implements ClientModInitializer {
             buttons.add(new CosmicButton(buttonX, 8, buttonWidth, 20, Text.literal(OPTIONS_BUTTON_LABEL),
                 CosmicButton.Style.NAVIGATION, false, () -> client.setScreen(new GuildMarkScreen(screen))));
         });
+    }
+
+    private static void startAutomaticUpdate() {
+        long now = System.currentTimeMillis();
+        if (!SETTINGS.autoUpdateDue(now)) return;
+        String url = SETTINGS.autoImportUrl();
+        SETTINGS.recordAutoUpdateAttempt(now);
+        LOGGER.info("Checking saved guild database for updates: {}", url);
+        GuildAutoImporter.start(url,
+            summary -> LOGGER.info("Automatic guild update complete: {} guilds, {} images", summary.guilds(), summary.images()),
+            error -> LOGGER.warn("Automatic guild update failed; keeping the current database", GuildAutoImporter.rootCause(error)));
     }
 }

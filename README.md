@@ -10,8 +10,12 @@ GuildMark is a client-side Fabric mod for creating local Minecraft guild lists a
 - Guild marks on capes, chest armor, shields, elytra, and player heads
 - Player skin previews and 3D models in the map view
 - One-click Auto Import of a remote guild database and its images
+- Optional daily Auto Update from the saved database URL at Minecraft startup
 - English and Polish interface
 - Configurable banner resolution limit
+- Configurable 10–256 block cosmetic render distance with an Unlimited option
+- Configurable nearest-player cosmetic limit: 8, 16, 32, 64, 128, or Unlimited
+- Shared texture cache with automatic memory and entry limits
 - Client-side only; a server does not need to install GuildMark
 
 ## Supported versions
@@ -62,8 +66,8 @@ The Gradle wrapper downloads the required build tools automatically.
 
 The scripts create:
 
-- `release/modrinth/GuildMark-1.21.8-1.0.1.jar`
-- `release/modrinth/GuildMark-26.1.2-1.0.1.jar`
+- `release/modrinth/GuildMark-1.21.8-1.0.2.jar`
+- `release/modrinth/GuildMark-26.1.2-1.0.2.jar`
 
 Linux and macOS users can run `./gradlew clean remapJar` and `./gradlew -p versions/26.1.2 clean jar`.
 

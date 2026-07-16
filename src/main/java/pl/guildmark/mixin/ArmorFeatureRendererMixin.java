@@ -12,6 +12,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import pl.guildmark.GuildHeadMarker;
+import pl.guildmark.GuildMarkFeatureRenderer;
 
 @Mixin(ArmorFeatureRenderer.class)
 public abstract class ArmorFeatureRendererMixin {
@@ -21,7 +22,8 @@ public abstract class ArmorFeatureRendererMixin {
     private void guildmark$hideHelmet(MatrixStack matrices, VertexConsumerProvider consumers, int light,
                                       BipedEntityRenderState state, float limbAngle, float limbDistance, CallbackInfo callback) {
         GUILDMARK_HELMET.remove();
-        if (state instanceof PlayerEntityRenderState playerState && GuildHeadMarker.kind(playerState.name) != GuildHeadMarker.Kind.NONE) {
+        if (state instanceof PlayerEntityRenderState playerState && GuildMarkFeatureRenderer.shouldRenderCosmetics(playerState)
+            && GuildHeadMarker.kind(playerState.name) != GuildHeadMarker.Kind.NONE) {
             GUILDMARK_HELMET.set(state.equippedHeadStack);
             state.equippedHeadStack = ItemStack.EMPTY;
         }

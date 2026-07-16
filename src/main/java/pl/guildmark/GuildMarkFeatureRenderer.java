@@ -22,15 +22,23 @@ public final class GuildMarkFeatureRenderer extends FeatureRenderer<PlayerEntity
     }
     public static GuildData.Guild guildFor(String playerName) {
         if (GuildMarkClient.STORE == null || playerName == null) return null;
-        return GuildMarkClient.STORE.data().guilds.stream()
-            .filter(g -> g.players.stream().anyMatch(n -> n.equalsIgnoreCase(playerName))).findFirst().orElse(null);
+        return GuildMarkClient.STORE.guildForPlayer(playerName);
+    }
+    public static boolean isWithinRenderDistance(PlayerEntityRenderState state) {
+        if (GuildMarkClient.SETTINGS == null) return true;
+        int blocks = GuildMarkClient.SETTINGS.cosmeticRenderDistance();
+        return blocks == 0 || state.squaredDistanceToCamera <= (double) blocks * blocks;
+    }
+    public static boolean shouldRenderCosmetics(PlayerEntityRenderState state) {
+        return isWithinRenderDistance(state) && GuildRenderLimiter.shouldRender(state.name);
     }
     public static boolean overridesVanillaCape(PlayerEntityRenderState state) {
+        if (!shouldRenderCosmetics(state)) return false;
         GuildData.Guild guild = guildFor(state.name);
         return guild != null && guild.showOnCape && GuildMarkTextures.get(guild.markFile) != null;
     }
     @Override public void render(MatrixStack matrices, VertexConsumerProvider consumers, int light, PlayerEntityRenderState state, float limbAngle, float limbDistance) {
-        if (state.invisible) return;
+        if (state.invisible || !shouldRenderCosmetics(state)) return;
         GuildData.Guild guild = guildFor(state.name);
         if (guild == null) return;
         GuildHeadMarker.Kind marker = GuildHeadMarker.kind(state.name);

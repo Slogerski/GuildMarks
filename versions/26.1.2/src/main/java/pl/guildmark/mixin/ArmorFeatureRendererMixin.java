@@ -22,7 +22,8 @@ public abstract class ArmorFeatureRendererMixin {
     private void guildmark$hideHelmet(PoseStack matrices, SubmitNodeCollector collector, int light,
                                       HumanoidRenderState state, float limbAngle, float limbDistance, CallbackInfo callback) {
         GUILDMARK_HELMET.remove();
-        if (state instanceof AvatarRenderState avatarState && GuildHeadMarker.kind(GuildMarkFeatureRenderer.playerName(avatarState)) != GuildHeadMarker.Kind.NONE) {
+        if (state instanceof AvatarRenderState avatarState && GuildMarkFeatureRenderer.shouldRenderCosmetics(avatarState)
+            && GuildHeadMarker.kind(GuildMarkFeatureRenderer.playerName(avatarState)) != GuildHeadMarker.Kind.NONE) {
             GUILDMARK_HELMET.set(state.headEquipment);
             state.headEquipment = ItemStack.EMPTY;
         }
