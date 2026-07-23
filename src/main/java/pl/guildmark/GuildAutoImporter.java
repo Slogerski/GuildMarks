@@ -89,7 +89,7 @@ public final class GuildAutoImporter {
                 MinecraftClient.getInstance().execute(() -> {
                     RUNNING.set(false);
                     Throwable cause = rootCause(error);
-                    GuildMarkClient.LOGGER.warn("Guild import failed for {}; keeping the current database", url, cause);
+                    GuildMarkClient.LOGGER.warn("Guild import failed; keeping the current database", cause);
                     failure.accept(cause);
                 });
                 return null;
@@ -193,7 +193,7 @@ public final class GuildAutoImporter {
         HttpRequest request = HttpRequest.newBuilder(URI.create(url))
             .timeout(Duration.ofMillis(timeoutMillis))
             .header("Accept", accept)
-            .header("User-Agent", "GuildMark/1.0.2 Minecraft/1.21.8")
+            .header("User-Agent", "GuildMark/1.1.1 Minecraft/1.21.8")
             .GET()
             .build();
         HttpResponse<byte[]> response = HTTP.send(request, HttpResponse.BodyHandlers.ofByteArray());

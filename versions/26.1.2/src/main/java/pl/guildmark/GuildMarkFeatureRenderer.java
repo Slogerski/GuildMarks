@@ -1,6 +1,7 @@
 package pl.guildmark;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.player.PlayerModel;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
@@ -21,6 +22,9 @@ public final class GuildMarkFeatureRenderer extends RenderLayer<AvatarRenderStat
     }
     public static GuildData.Guild guildFor(String playerName) {
         if (GuildMarkClient.STORE == null || playerName == null) return null;
+        if (Minecraft.getInstance().screen instanceof GuildMarkScreen screen && screen.overridesProfileGuild(playerName))
+            return screen.profilePreviewGuild();
+        if (DedicatedServerMode.isActive()) return DedicatedApiClient.guildForPlayer(playerName);
         return GuildMarkClient.STORE.guildForPlayer(playerName);
     }
     public static boolean isWithinRenderDistance(AvatarRenderState state) {
@@ -34,7 +38,7 @@ public final class GuildMarkFeatureRenderer extends RenderLayer<AvatarRenderStat
     public static boolean overridesVanillaCape(AvatarRenderState state) {
         if (!shouldRenderCosmetics(state)) return false;
         GuildData.Guild guild = guildFor(playerName(state));
-        return guild != null && guild.showOnCape && GuildMarkTextures.get(guild.markFile) != null;
+        return guild != null && globalCapeEnabled() && guild.showOnCape && GuildMarkTextures.get(guild.markFile) != null;
     }
     public static String playerName(AvatarRenderState state) {
         return ((GuildMarkAvatarState) state).guildmark$getPlayerName();
@@ -45,20 +49,20 @@ public final class GuildMarkFeatureRenderer extends RenderLayer<AvatarRenderStat
         GuildData.Guild guild = guildFor(playerName);
         if (guild == null) return;
         GuildHeadMarker.Kind marker = GuildHeadMarker.kind(playerName);
-        if (marker != GuildHeadMarker.Kind.NONE) {
+        if (globalHelmetEnabled() && marker != GuildHeadMarker.Kind.NONE) {
             collector.submitModel(headMarkerModel, state, matrices, RenderTypes.entityCutout(GuildHeadMarker.texture(marker)),
                 light, OverlayTexture.NO_OVERLAY, state.outlineColor, null);
         }
         GuildMarkTextures.Pair textures = GuildMarkTextures.get(guild.markFile); if (textures == null) return;
-        if (guild.showOnChest) {
+        if (globalChestEnabled() && guild.showOnChest) {
             collector.submitModel(chestModel, state, matrices, RenderTypes.entityCutout(textures.original()),
                 light, OverlayTexture.NO_OVERLAY, state.outlineColor, null);
         }
-        if (guild.showOnCape && !state.chestEquipment.is(Items.ELYTRA)) {
+        if (globalCapeEnabled() && guild.showOnCape && !state.chestEquipment.is(Items.ELYTRA)) {
             collector.submitModel(capeModel, state, matrices, RenderTypes.entityCutout(textures.original()),
                 light, OverlayTexture.NO_OVERLAY, state.outlineColor, null);
         }
-        if (guild.showOnElytra && state.chestEquipment.is(Items.ELYTRA)) {
+        if (globalElytraEnabled() && guild.showOnElytra && state.chestEquipment.is(Items.ELYTRA)) {
             matrices.pushPose();
             matrices.translate(0.0F, 0.0F, 0.125F);
             collector.submitModel(elytraModel, state, matrices, RenderTypes.entityCutout(textures.original()),
@@ -66,4 +70,9 @@ public final class GuildMarkFeatureRenderer extends RenderLayer<AvatarRenderStat
             matrices.popPose();
         }
     }
+    public static boolean globalChestEnabled() { return !DedicatedServerMode.isActive() || GuildMarkClient.SETTINGS == null || GuildMarkClient.SETTINGS.renderChestEnabled(); }
+    public static boolean globalHelmetEnabled() { return !DedicatedServerMode.isActive(); }
+    public static boolean globalCapeEnabled() { return !DedicatedServerMode.isActive() || GuildMarkClient.SETTINGS == null || GuildMarkClient.SETTINGS.renderCapeEnabled(); }
+    public static boolean globalShieldEnabled() { return !DedicatedServerMode.isActive() || GuildMarkClient.SETTINGS == null || GuildMarkClient.SETTINGS.renderShieldEnabled(); }
+    public static boolean globalElytraEnabled() { return !DedicatedServerMode.isActive() || GuildMarkClient.SETTINGS == null || GuildMarkClient.SETTINGS.renderElytraEnabled(); }
 }

@@ -9,30 +9,55 @@ public final class CosmicUi {
     public static void roundedRect(GuiGraphicsExtractor c, int x, int y, int w, int h, int radius, int color) {
         if (w <= 0 || h <= 0) return;
         int r = Math.max(0, Math.min(radius, Math.min(w, h) / 2));
-        for (int row = 0; row < h; row++) {
+        if (r <= 1) {
+            c.fill(x, y, x + w, y + h, color);
+            return;
+        }
+        if (h > r * 2) c.fill(x, y + r, x + w, y + h - r, color);
+        for (int row = 0; row < r; row++) {
             int inset = cornerInset(row, h, r);
             c.fill(x + inset, y + row, x + w - inset, y + row + 1, color);
+            int bottomRow = h - 1 - row;
+            c.fill(x + inset, y + bottomRow, x + w - inset, y + bottomRow + 1, color);
         }
     }
 
     public static void roundedGradient(GuiGraphicsExtractor c, int x, int y, int w, int h, int radius, int top, int bottom) {
         if (w <= 0 || h <= 0) return;
         int r = Math.max(0, Math.min(radius, Math.min(w, h) / 2));
-        for (int row = 0; row < h; row++) {
-            float t = h <= 1 ? 0 : row / (float)(h - 1);
+        if (r <= 1) {
+            c.fillGradient(x, y, x + w, y + h, top, bottom);
+            return;
+        }
+        float denominator = h - 1.0F;
+        if (h > r * 2) {
+            c.fillGradient(x, y + r, x + w, y + h - r,
+                lerpColor(top, bottom, r / denominator),
+                lerpColor(top, bottom, (h - 1 - r) / denominator));
+        }
+        for (int row = 0; row < r; row++) {
             int inset = cornerInset(row, h, r);
-            c.fill(x + inset, y + row, x + w - inset, y + row + 1, lerpColor(top, bottom, t));
+            c.fill(x + inset, y + row, x + w - inset, y + row + 1, lerpColor(top, bottom, row / denominator));
+            int bottomRow = h - 1 - row;
+            c.fill(x + inset, y + bottomRow, x + w - inset, y + bottomRow + 1, lerpColor(top, bottom, bottomRow / denominator));
         }
     }
 
     public static void shadow(GuiGraphicsExtractor c, int x, int y, int w, int h, int radius, int rgb, float strength) {
-        int[] spread = h <= 20 ? new int[]{3, 2, 1} : new int[]{5, 3, 2};
-        int[] alpha = h <= 20 ? new int[]{16, 25, 38} : new int[]{18, 28, 42};
-        for (int i = 0; i < spread.length; i++) {
-            int s = spread[i];
-            int a = Mth.clamp((int)(alpha[i] * strength), 0, 255);
-            roundedRect(c, x - s, y + 2 - s, w + s * 2, h + s * 2, radius + s, (a << 24) | (rgb & 0xFFFFFF));
+        if (h <= 20) {
+            shadowLayer(c, x, y, w, h, radius, rgb, strength, 3, 16);
+            shadowLayer(c, x, y, w, h, radius, rgb, strength, 2, 25);
+            shadowLayer(c, x, y, w, h, radius, rgb, strength, 1, 38);
+        } else {
+            shadowLayer(c, x, y, w, h, radius, rgb, strength, 5, 18);
+            shadowLayer(c, x, y, w, h, radius, rgb, strength, 3, 28);
+            shadowLayer(c, x, y, w, h, radius, rgb, strength, 2, 42);
         }
+    }
+
+    private static void shadowLayer(GuiGraphicsExtractor c, int x, int y, int w, int h, int radius, int rgb, float strength, int spread, int alpha) {
+        int a = Mth.clamp((int)(alpha * strength), 0, 255);
+        roundedRect(c, x - spread, y + 2 - spread, w + spread * 2, h + spread * 2, radius + spread, (a << 24) | (rgb & 0xFFFFFF));
     }
 
     public static void glowBorder(GuiGraphicsExtractor c, int x, int y, int w, int h, int radius, int color, float glow) {

@@ -4,6 +4,9 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.ingame.InventoryScreen;
+import net.minecraft.client.render.entity.state.EntityRenderState;
+import net.minecraft.client.render.entity.state.LivingEntityRenderState;
+import net.minecraft.client.render.entity.state.PlayerEntityRenderState;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
 
@@ -24,22 +27,28 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.util.Util;
+import org.joml.Quaternionf;
+import org.joml.Vector3f;
 
 import static pl.guildmark.GuildMarkI18n.tr;
 
 public final class GuildMarkScreen extends Screen {
+    private static final int UI_WIDTH = 760;
     private static final int UI_HEIGHT = 400;
     private static final int[] RENDER_DISTANCES = {10, 16, 24, 32, 48, 64, 96, 128, 192, 256, 0};
     private static final int[] PLAYER_LIMITS = {8, 16, 32, 64, 128, 0};
-    private enum Page { MAP, SETTINGS, EDITOR, AUTO_IMPORT, AUTHOR }
+    private enum Page { PROFILE, RENDER, MAP, SETTINGS, EDITOR, AUTO_IMPORT, AUTHOR }
     private final Screen parent;
     private Page page = Page.MAP;
     private int selectedGuild = -1;
     private int scroll;
     private int editorGuildScroll;
     private String status = tr("Data is stored locally", "Dane zapisują się lokalnie");
-    private TextFieldWidget guildInput, playerInput, urlInput, markSourceInput;
+    private TextFieldWidget guildInput, playerInput, urlInput, apiInput, markSourceInput;
     private CosmicButton chestToggleButton, helmetToggleButton, capeToggleButton, shieldToggleButton, elytraToggleButton, autoUpdateButton;
+    private CosmicButton profilePickerButton, globalChestButton, globalHelmetButton, globalCapeButton, globalShieldButton, globalElytraButton;
+    private boolean capePickerOpen;
+    private int profileGridScroll;
     private boolean draggingModel;
     private boolean draggingEditorScrollbar;
     private boolean draggingOwnHeadHue;
@@ -47,42 +56,104 @@ public final class GuildMarkScreen extends Screen {
     private boolean draggingBannerResolution;
     private boolean draggingRenderDistance;
     private boolean draggingPlayerLimit;
+    private boolean apiDiscoveryStarted;
+    private String discoveredApiUrl = DedicatedApiClient.MCEXTREME_DEFAULT_API;
+    private Boolean recommendedApiAvailable;
     private int autoImportRequest;
     private float modelYaw;
+    private float modelPitch;
 
     public GuildMarkScreen(Screen parent) { super(Text.literal("GuildMark")); this.parent = parent; }
 
+    private float responsiveUiScale() {
+        float horizontal = (width - 24.0F) / UI_WIDTH;
+        float vertical = (height - 24.0F) / UI_HEIGHT;
+        return Math.max(0.35F, Math.min(1.0F, Math.min(horizontal, vertical)));
+    }
+
+    private int layoutWidth() { return Math.max(UI_WIDTH, (int)Math.floor(width / responsiveUiScale())); }
+    private int layoutHeight() { return Math.max(UI_HEIGHT, (int)Math.floor(height / responsiveUiScale())); }
+    private double layoutMouse(double coordinate) { return coordinate / responsiveUiScale(); }
+
     @Override protected void init() {
+        boolean dedicated = DedicatedServerMode.isActive();
+        if (dedicated && page != Page.PROFILE && page != Page.RENDER && page != Page.AUTO_IMPORT && page != Page.SETTINGS && page != Page.AUTHOR) page = Page.PROFILE;
+        if (!dedicated && (page == Page.PROFILE || page == Page.RENDER)) page = Page.MAP;
         String guildDraft = fieldText(guildInput), playerDraft = fieldText(playerInput);
         String urlDraft = urlInput == null ? GuildMarkClient.SETTINGS.autoImportUrl() : fieldText(urlInput);
+        String apiDraft = apiInput == null ? GuildMarkClient.SETTINGS.dedicatedApiUrl() : fieldText(apiInput);
         String markSourceDraft = fieldText(markSourceInput);
         int previousEditorGuildScroll = editorGuildScroll;
         clearChildren();
-        guildInput = null; playerInput = null; urlInput = null; markSourceInput = null;
+        guildInput = null; playerInput = null; urlInput = null; apiInput = null; markSourceInput = null;
         draggingModel = false; draggingEditorScrollbar = false; draggingOwnHeadHue = false; draggingAllyHeadHue = false; draggingBannerResolution = false; draggingRenderDistance = false; draggingPlayerLimit = false;
         chestToggleButton = null; helmetToggleButton = null; capeToggleButton = null; shieldToggleButton = null; elytraToggleButton = null; autoUpdateButton = null;
-        int left = Math.max(12, (width - 760) / 2), top = Math.max(12, (height - UI_HEIGHT) / 2);
-        int navX = left + 18, navY = top + 186;
-        addNav(tr("MAP", "MAPA"), Page.MAP, navX, navY);
-        addNav(tr("SETTINGS", "USTAWIENIA"), Page.SETTINGS, navX, navY + 34);
-        addNav(tr("EDITOR", "EDYTOR"), Page.EDITOR, navX, navY + 68);
-        addNav("AUTO IMPORT", Page.AUTO_IMPORT, navX, navY + 102);
-        addNav(tr("ABOUT", "O MODZIE"), Page.AUTHOR, navX, navY + 136);
-        addDrawableChild(new CosmicButton(navX, navY + 170, 142, 24, Text.literal(tr("EXIT", "WYJŚCIE")), CosmicButton.Style.DANGER, false, this::close));
+        profilePickerButton = null; globalChestButton = null; globalHelmetButton = null; globalCapeButton = null; globalShieldButton = null; globalElytraButton = null;
+        int layoutWidth = layoutWidth(), layoutHeight = layoutHeight();
+        int left = Math.max(12, (layoutWidth - UI_WIDTH) / 2), top = Math.max(12, (layoutHeight - UI_HEIGHT) / 2);
+        int navX = left + 18, navY = top + (dedicated ? 112 : 186);
+        if (dedicated) {
+            addNav(tr("PROFILE", "PROFIL"), Page.PROFILE, navX, navY);
+            addNav("RENDER", Page.RENDER, navX, navY + 34);
+            addNav("AUTO IMPORT", Page.AUTO_IMPORT, navX, navY + 68);
+            addNav(tr("SETTINGS", "USTAWIENIA"), Page.SETTINGS, navX, navY + 102);
+            addNav(tr("ABOUT", "O MODZIE"), Page.AUTHOR, navX, navY + 136);
+            addDrawableChild(new CosmicButton(navX, navY + 170, 142, 24, Text.literal(tr("EXIT", "WYJŚCIE")), CosmicButton.Style.DANGER, false, this::close));
+        } else {
+            addNav(tr("MAP", "MAPA"), Page.MAP, navX, navY);
+            addNav(tr("SETTINGS", "USTAWIENIA"), Page.SETTINGS, navX, navY + 34);
+            addNav(tr("EDITOR", "EDYTOR"), Page.EDITOR, navX, navY + 68);
+            addNav("AUTO IMPORT", Page.AUTO_IMPORT, navX, navY + 102);
+            addNav(tr("ABOUT", "O MODZIE"), Page.AUTHOR, navX, navY + 136);
+            addDrawableChild(new CosmicButton(navX, navY + 170, 142, 24, Text.literal(tr("EXIT", "WYJŚCIE")), CosmicButton.Style.DANGER, false, this::close));
+        }
         int cx = left + 190, cy = top + 76;
+        if (page == Page.PROFILE) initProfile(cx, cy);
+        if (page == Page.RENDER) initGlobalRender(cx, cy);
         if (page == Page.EDITOR) {
             initEditor(cx, cy);
             guildInput.setText(guildDraft); playerInput.setText(playerDraft); markSourceInput.setText(markSourceDraft);
             editorGuildScroll = previousEditorGuildScroll;
         }
-        if (page == Page.AUTO_IMPORT) { initAutoImport(cx, cy); urlInput.setText(urlDraft); }
+        if (page == Page.AUTO_IMPORT) {
+            initAutoImport(cx, cy);
+            if (urlInput != null) urlInput.setText(urlDraft);
+            if (apiInput != null) apiInput.setText(apiDraft);
+        }
         if (page == Page.AUTHOR) initAuthor(cx, cy);
         if (page == Page.SETTINGS) {
-            addDrawableChild(new CosmicButton(cx, cy, 230, 22, Text.literal(tr("Export JSON to clipboard", "Eksportuj JSON do schowka")), CosmicButton.Style.EDITOR, false, this::exportClipboard));
-            addDrawableChild(new CosmicButton(cx, cy + 30, 230, 22, Text.literal(tr("Import JSON from clipboard", "Importuj JSON ze schowka")), CosmicButton.Style.EDITOR, false, this::importClipboard));
+            if (!dedicated) {
+                addDrawableChild(new CosmicButton(cx, cy, 230, 22, Text.literal(tr("Export JSON to clipboard", "Eksportuj JSON do schowka")), CosmicButton.Style.EDITOR, false, this::exportClipboard));
+                addDrawableChild(new CosmicButton(cx, cy + 30, 230, 22, Text.literal(tr("Import JSON from clipboard", "Importuj JSON ze schowka")), CosmicButton.Style.EDITOR, false, this::importClipboard));
+            }
             addDrawableChild(new CosmicButton(cx + 250, cy + 16, 120, 22, Text.literal("ENGLISH"), CosmicButton.Style.EDITOR, !GuildMarkClient.SETTINGS.isPolish(), () -> setLanguage("en")));
             addDrawableChild(new CosmicButton(cx + 378, cy + 16, 120, 22, Text.literal("POLSKI"), CosmicButton.Style.EDITOR, GuildMarkClient.SETTINGS.isPolish(), () -> setLanguage("pl")));
         }
+    }
+
+    private void initProfile(int x, int y) {
+        profilePickerButton = new CosmicButton(x + 280, y, 230, 24, Text.literal(""), CosmicButton.Style.EDITOR, false, () -> {
+            capePickerOpen = !capePickerOpen;
+            profileGridScroll = 0;
+            updateProfilePickerButton();
+        });
+        addDrawableChild(profilePickerButton);
+        addDrawableChild(new CosmicButton(x + 280, y + 30, 230, 20, Text.literal(tr("REMOVE SELECTION", "USUŃ WYBÓR")), CosmicButton.Style.EDITOR_DANGER, false, () -> selectProfileGuild(null)));
+        updateProfilePickerButton();
+    }
+
+    private void initGlobalRender(int x, int y) {
+        globalCapeButton = globalToggle(x, y + 30, tr("CAPE", "PELERYNA"), () -> GuildMarkClient.SETTINGS.setRenderCapeEnabled(!GuildMarkClient.SETTINGS.renderCapeEnabled()));
+        globalChestButton = globalToggle(x + 260, y + 30, tr("CHEST", "KLATKA"), () -> GuildMarkClient.SETTINGS.setRenderChestEnabled(!GuildMarkClient.SETTINGS.renderChestEnabled()));
+        globalShieldButton = globalToggle(x, y + 76, tr("SHIELD", "TARCZA"), () -> GuildMarkClient.SETTINGS.setRenderShieldEnabled(!GuildMarkClient.SETTINGS.renderShieldEnabled()));
+        globalElytraButton = globalToggle(x + 260, y + 76, "ELYTRA", () -> GuildMarkClient.SETTINGS.setRenderElytraEnabled(!GuildMarkClient.SETTINGS.renderElytraEnabled()));
+        updateGlobalRenderButtons();
+    }
+
+    private CosmicButton globalToggle(int x, int y, String label, Runnable toggle) {
+        CosmicButton button = new CosmicButton(x, y, 246, 30, Text.literal(label), CosmicButton.Style.EDITOR, false, () -> { toggle.run(); updateGlobalRenderButtons(); });
+        addDrawableChild(button);
+        return button;
     }
 
     private void addNav(String label, Page target, int x, int y) {
@@ -112,11 +183,38 @@ public final class GuildMarkScreen extends Screen {
     }
 
     private void initAutoImport(int x, int y) {
+        if (DedicatedServerMode.isActive()) {
+            apiInput = styledField(x, y + 44, 390, 22, tr("Cape server address", "Adres serwera peleryn"), "https://domain.com");
+            addDrawableChild(apiInput);
+            addDrawableChild(new CosmicButton(x + 400, y + 44, 120, 22, Text.literal(tr("SAVE & REFRESH", "ZAPISZ I ODŚW.")), CosmicButton.Style.EDITOR, false, this::connectDedicatedApi));
+            boolean recommendedActive = recommendedApiActive();
+            addDrawableChild(new CosmicButton(x + 400, y + 105, 120, 22,
+                Text.literal(recommendedActive ? tr("DEACTIVATE", "DEZAKTYWUJ") : tr("ACTIVATE", "AKTYWUJ")),
+                recommendedActive ? CosmicButton.Style.EDITOR_DANGER : CosmicButton.Style.EDITOR, false, this::toggleRecommendedApi));
+            if (!apiDiscoveryStarted) {
+                apiDiscoveryStarted = true;
+                status = tr("Checking the recommended API address…", "Sprawdzanie zalecanego adresu API…");
+                DedicatedApiClient.probe(DedicatedApiClient.MCEXTREME_DEFAULT_API, address -> {
+                    discoveredApiUrl = address;
+                    recommendedApiAvailable = true;
+                    status = tr("Available API address found!", "Znaleziono dostępny adres dla Twojego API!");
+                    init();
+                }, error -> {
+                    recommendedApiAvailable = false;
+                    status = tr("Recommended API address is currently unavailable", "Zalecany adres API jest obecnie niedostępny");
+                    init();
+                });
+            }
+            return;
+        }
         urlInput = styledField(x, y + 44, 390, 22, tr("JSON address", "Adres JSON"), tr("https://your-domain.com/guilds.json", "https://twoja-domena.pl/guilds.json")); addDrawableChild(urlInput);
         addDrawableChild(new CosmicButton(x + 400, y + 44, 120, 22, Text.literal(tr("IMPORT JSON", "IMPORTUJ JSON")), CosmicButton.Style.EDITOR, false, this::autoImport));
         autoUpdateButton = new CosmicButton(x, y + 78, 166, 22, Text.literal(""), CosmicButton.Style.EDITOR, false, this::toggleAutoUpdate);
         addDrawableChild(autoUpdateButton);
         updateAutoUpdateButton();
+        apiInput = styledField(x, y + 126, 390, 22, tr("Dedicated API address", "Adres dedykowanego API"), "https://domain.com/api");
+        addDrawableChild(apiInput);
+        addDrawableChild(new CosmicButton(x + 400, y + 126, 120, 22, Text.literal(tr("CONNECT API", "POŁĄCZ API")), CosmicButton.Style.EDITOR, false, this::connectDedicatedApi));
     }
 
     private void initAuthor(int x, int y) {
@@ -144,27 +242,118 @@ public final class GuildMarkScreen extends Screen {
 
     @Override public void render(DrawContext c, int mouseX, int mouseY, float delta) {
         renderCosmos(c);
-        int left = Math.max(12, (width - 760) / 2), top = Math.max(12, (height - UI_HEIGHT) / 2), right = Math.min(width - 12, left + 760), bottom = Math.min(height - 12, top + UI_HEIGHT);
+        float uiScale = responsiveUiScale();
+        int layoutWidth = layoutWidth(), layoutHeight = layoutHeight();
+        int layoutMouseX = (int)Math.floor(mouseX / uiScale), layoutMouseY = (int)Math.floor(mouseY / uiScale);
+        c.getMatrices().pushMatrix();
+        c.getMatrices().scale(uiScale, uiScale);
+        int left = Math.max(12, (layoutWidth - UI_WIDTH) / 2), top = Math.max(12, (layoutHeight - UI_HEIGHT) / 2), right = Math.min(layoutWidth - 12, left + UI_WIDTH), bottom = Math.min(layoutHeight - 12, top + UI_HEIGHT);
         panel(c, left, top, right, bottom, 0xEB0B0912, 0xFF915CFF);
         panel(c, left + 10, top + 10, left + 174, bottom - 10, 0xD912101E, 0xFF4C327A);
         Text author = Text.literal("by Slogerski");
         c.drawText(textRenderer, author, right - textRenderer.getWidth(author) - 12, top + 13, 0x99000000, false);
         c.drawCenteredTextWithShadow(textRenderer, Text.literal("GUILD"), left + 92, top + 20, 0xFFE9E1FF);
         c.drawCenteredTextWithShadow(textRenderer, Text.literal("MARK"), left + 92, top + 33, 0xFFB17AFF);
-        if (client != null && client.player != null) {
+        boolean dedicated = DedicatedServerMode.isActive();
+        if (!dedicated && client != null && client.player != null) {
             int mx = left + 92, my = top + 174;
-            InventoryScreen.drawEntity(c, mx - 55, top + 51, mx + 55, my, 62, 0.0625F, mouseX, mouseY, client.player);
+            InventoryScreen.drawEntity(c, mx - 55, top + 51, mx + 55, my, 62, 0.0625F, layoutMouseX, layoutMouseY, client.player);
+        } else if (dedicated) {
+            c.drawCenteredTextWithShadow(textRenderer, Text.literal("DEDICATED"), left + 92, top + 61, 0xFFB77AFF);
+            c.drawCenteredTextWithShadow(textRenderer, Text.literal("mcextreme.pl"), left + 92, top + 76, 0xFF8F7CA6);
+            CosmicUi.roundedGradient(c, left + 38, top + 91, 108, 2, 1, 0x008F5EC8, 0xFF8F5EC8);
         }
-        drawFieldBackground(c, guildInput); drawFieldBackground(c, playerInput); drawFieldBackground(c, markSourceInput); drawFieldBackground(c, urlInput);
+        drawFieldBackground(c, guildInput); drawFieldBackground(c, playerInput); drawFieldBackground(c, markSourceInput); drawFieldBackground(c, urlInput); drawFieldBackground(c, apiInput);
         c.drawTextWithShadow(textRenderer, Text.literal(titleForPage()), left + 190, top + 24, 0xFFF0E9FF);
-        c.drawTextWithShadow(textRenderer, Text.literal(status), left + 190, bottom - 24, isErrorStatus() ? 0xFFFF6B8A : 0xFFA98AD8);
-        if (page == Page.MAP) renderMap(c, left + 190, top + 58, right - 14, bottom - 40, mouseX, mouseY);
+        String apiNotice = dedicated ? DedicatedApiClient.restrictionNotice() : "";
+        String visibleStatus = apiNotice.isBlank() ? status : apiNotice;
+        c.drawTextWithShadow(textRenderer, Text.literal(visibleStatus), left + 190, bottom - 24, isErrorStatus(visibleStatus) ? 0xFFFF6B8A : 0xFFA98AD8);
+        if (page == Page.PROFILE) renderProfile(c, left + 190, top + 58, layoutMouseX, layoutMouseY);
+        if (page == Page.RENDER) renderGlobalRender(c, left + 190, top + 76);
+        if (page == Page.MAP) renderMap(c, left + 190, top + 58, right - 14, bottom - 40, layoutMouseX, layoutMouseY);
         if (page == Page.EDITOR) renderEditor(c, left + 190, top + 76, right - 14);
         if (page == Page.SETTINGS) renderSettings(c, left + 190, top + 148);
-        if (page == Page.AUTO_IMPORT) renderAutoImport(c, left + 190, top + 76, mouseX, mouseY);
+        if (page == Page.AUTO_IMPORT) renderAutoImport(c, left + 190, top + 76, layoutMouseX, layoutMouseY);
         if (page == Page.AUTHOR) renderAuthor(c, left + 190, top + 76);
         updatePlacementButtonLabels();
-        super.render(c, mouseX, mouseY, delta);
+        super.render(c, layoutMouseX, layoutMouseY, delta);
+        c.getMatrices().popMatrix();
+        if (page == Page.PROFILE && client != null && client.player != null) {
+            int profileX = left + 190, profileY = top + 58;
+            renderProfilePlayer(c,
+                Math.round((profileX + 18) * uiScale), Math.round((profileY + 34) * uiScale),
+                Math.round((profileX + 240) * uiScale), Math.round((profileY + 270) * uiScale), uiScale);
+        }
+    }
+
+    private void renderProfile(DrawContext c, int x, int y, int mouseX, int mouseY) {
+        CosmicUi.editorPanel(c, x, y, 258, 304);
+        c.drawCenteredTextWithShadow(textRenderer, Text.literal(tr("YOUR PROFILE", "TWÓJ PROFIL")), x + 129, y + 12, 0xFFCBB4EA);
+        GuildData.Guild selected = profilePreviewGuild();
+        String selectedName = selected == null ? tr("No cape selected", "Nie wybrano peleryny") : selected.name;
+        c.drawCenteredTextWithShadow(textRenderer, Text.literal(shorten(selectedName, 30)), x + 129, y + 278, selected == null ? 0xFF8D7E9B : 0xFFE5D7FA);
+
+        int pickerX = x + 270, pickerY = y + 62;
+        CosmicUi.editorPanel(c, pickerX, pickerY, 250, 242);
+        if (!capePickerOpen) {
+            c.drawCenteredTextWithShadow(textRenderer, Text.literal(tr("SELECTED COSMETIC", "WYBRANY KOSMETYK")), pickerX + 125, pickerY + 14, 0xFF9F82C8);
+            if (selected == null) {
+                c.drawCenteredTextWithShadow(textRenderer, Text.literal(tr("Open the cape list to choose", "Otwórz listę peleryn, aby wybrać")), pickerX + 125, pickerY + 112, 0xFF8D7E9B);
+            } else {
+                renderMarkPreview(c, selected, pickerX + 66, pickerY + 38, 118, 150);
+                c.drawCenteredTextWithShadow(textRenderer, Text.literal(shorten(selected.name, 28)), pickerX + 125, pickerY + 204, 0xFFE6D9F8);
+            }
+            return;
+        }
+
+        List<GuildData.Guild> choices = profileGuildChoices();
+        c.drawTextWithShadow(textRenderer, Text.literal(tr("AVAILABLE CAPES", "DOSTĘPNE PELERYNY")), pickerX + 10, pickerY + 9, 0xFFB69AD6);
+        if (choices.isEmpty()) {
+            c.drawCenteredTextWithShadow(textRenderer, Text.literal(tr("No downloaded graphics", "Brak pobranych grafik")), pickerX + 125, pickerY + 112, 0xFF8D7E9B);
+            return;
+        }
+        int maxScroll = Math.max(0, (choices.size() + 2) / 3 - 2);
+        profileGridScroll = clamp(profileGridScroll, 0, maxScroll);
+        int start = profileGridScroll * 3;
+        for (int slot = 0; slot < 6 && start + slot < choices.size(); slot++) {
+            GuildData.Guild guild = choices.get(start + slot);
+            int col = slot % 3, row = slot / 3;
+            int cardX = pickerX + 8 + col * 80, cardY = pickerY + 27 + row * 100;
+            boolean active = selected != null && selected.name.equalsIgnoreCase(guild.name);
+            CosmicUi.roundedRect(c, cardX, cardY, 74, 92, 7, active ? 0xFF9A65D0 : 0xFF3E2B50);
+            CosmicUi.roundedGradient(c, cardX + 1, cardY + 1, 72, 90, 6, active ? 0xFF2D1C3C : 0xFF191220, 0xFF0C0911);
+            renderMarkPreview(c, guild, cardX + 7, cardY + 7, 60, 60);
+            c.drawCenteredTextWithShadow(textRenderer, Text.literal(shorten(guild.name, 10)), cardX + 37, cardY + 76, active ? 0xFFFFFFFF : 0xFFC6B5D8);
+        }
+        if (maxScroll > 0) c.drawCenteredTextWithShadow(textRenderer, Text.literal((profileGridScroll + 1) + " / " + (maxScroll + 1)), pickerX + 125, pickerY + 225, 0xFF887899);
+    }
+
+    private void renderProfilePlayer(DrawContext c, int x1, int y1, int x2, int y2, float uiScale) {
+        EntityRenderState state = client.getEntityRenderDispatcher().getRenderer(client.player).getAndUpdateRenderState(client.player, 1.0F);
+        state.displayName = null;
+        state.nameLabelPos = null;
+        state.hitbox = null;
+        if (state instanceof PlayerEntityRenderState playerState) playerState.playerName = null;
+        if (state instanceof LivingEntityRenderState living) {
+            living.bodyYaw = 180.0F + modelYaw;
+            living.relativeHeadYaw = 0.0F;
+            living.pitch = 0.0F;
+        }
+        float entityScale = client.player.getScale();
+        Quaternionf cameraRotation = new Quaternionf().rotateX((float)Math.toRadians(modelPitch));
+        Quaternionf modelRotation = new Quaternionf().rotateZ((float)Math.PI).mul(cameraRotation);
+        Vector3f translation = new Vector3f(0.0F, client.player.getHeight() / 2.0F + 0.0625F * entityScale, 0.0F);
+        c.enableScissor(x1, y1, x2, y2);
+        c.addEntity(state, 88.0F * uiScale / entityScale, translation, modelRotation, cameraRotation, x1, y1, x2, y2);
+        c.disableScissor();
+    }
+
+    private void renderGlobalRender(DrawContext c, int x, int y) {
+        CosmicUi.editorPanel(c, x - 10, y - 12, 530, 246);
+        c.drawTextWithShadow(textRenderer, Text.literal(tr("GLOBAL COSMETIC VISIBILITY", "GLOBALNA WIDOCZNOŚĆ KOSMETYKÓW")), x, y, 0xFFDCCCF7);
+        c.drawTextWithShadow(textRenderer, Text.literal(tr("Choose which layers GuildMark renders on every player.", "Wybierz warstwy wyświetlane przez GuildMark u wszystkich graczy.")), x, y + 16, 0xFF998BA9);
+        c.drawTextWithShadow(textRenderer, Text.literal(tr("Green means enabled. Red means disabled.", "Zielony oznacza włączone. Czerwony oznacza wyłączone.")), x, y + 174, 0xFF8F829B);
+        c.drawTextWithShadow(textRenderer, Text.literal(tr("These switches do not change your selected guild cosmetic.", "Te przełączniki nie zmieniają wybranego kosmetyku gildii.")), x, y + 191, 0xFF8F829B);
     }
 
     private void renderCosmos(DrawContext c) {
@@ -246,26 +435,30 @@ public final class GuildMarkScreen extends Screen {
     }
 
     private void renderSettings(DrawContext c, int x, int y) {
-        int panelWidth = Math.max(300, Math.min(520, width - x - 24));
+        boolean dedicated = DedicatedServerMode.isActive();
+        int panelWidth = Math.max(300, Math.min(520, layoutWidth() - x - 24));
         CosmicUi.editorPanel(c, x - 10, y - 80, panelWidth, 300);
         c.drawTextWithShadow(textRenderer, Text.literal(tr("LANGUAGE", "JĘZYK")), x + 250, y - 70, 0xFF9F82C8);
-        c.drawTextWithShadow(textRenderer, Text.literal(tr("File: config/guildmark/guilds.json", "Plik: config/guildmark/guilds.json")), x, y, 0xFFC6B2E8);
-        c.drawTextWithShadow(textRenderer, Text.literal(tr("The export is readable JSON and preserves guild colors.", "Format eksportu jest czytelnym JSON-em i zachowuje kolory gildii.")), x, y + 20, 0xFF9889AA);
-        c.drawTextWithShadow(textRenderer, Text.literal(tr("HEAD MARKER COLORS", "KOLORY KOSTKI NA GŁOWIE")), x, y + 46, 0xFFB8A4CC);
-        c.drawTextWithShadow(textRenderer, Text.literal("MY · " + GuildMarkClient.SETTINGS.ownHeadHue() + "°"), x, y + 60, GuildMarkClient.SETTINGS.ownHeadColor());
-        c.drawTextWithShadow(textRenderer, Text.literal("ALLY · " + GuildMarkClient.SETTINGS.allyHeadHue() + "°"), x + 250, y + 60, GuildMarkClient.SETTINGS.allyHeadColor());
-        renderHueSlider(c, x, y + 73, 230, GuildMarkClient.SETTINGS.ownHeadHue());
-        renderHueSlider(c, x + 250, y + 73, 230, GuildMarkClient.SETTINGS.allyHeadHue());
+        c.drawTextWithShadow(textRenderer, Text.literal(dedicated ? tr("Dedicated profile settings for mcextreme.pl", "Ustawienia profilu dedykowanego dla mcextreme.pl") : tr("File: config/guildmark/guilds.json", "Plik: config/guildmark/guilds.json")), x, y, 0xFFC6B2E8);
+        c.drawTextWithShadow(textRenderer, Text.literal(dedicated ? tr("Head markers are disabled on this server.", "Kostki na głowie są wyłączone na tym serwerze.") : tr("The export is readable JSON and preserves guild colors.", "Format eksportu jest czytelnym JSON-em i zachowuje kolory gildii.")), x, y + 20, 0xFF9889AA);
+        if (!dedicated) {
+            c.drawTextWithShadow(textRenderer, Text.literal(tr("HEAD MARKER COLORS", "KOLORY KOSTKI NA GŁOWIE")), x, y + 46, 0xFFB8A4CC);
+            c.drawTextWithShadow(textRenderer, Text.literal("MY · " + GuildMarkClient.SETTINGS.ownHeadHue() + "°"), x, y + 60, GuildMarkClient.SETTINGS.ownHeadColor());
+            c.drawTextWithShadow(textRenderer, Text.literal("ALLY · " + GuildMarkClient.SETTINGS.allyHeadHue() + "°"), x + 250, y + 60, GuildMarkClient.SETTINGS.allyHeadColor());
+            renderHueSlider(c, x, y + 73, 230, GuildMarkClient.SETTINGS.ownHeadHue());
+            renderHueSlider(c, x + 250, y + 73, 230, GuildMarkClient.SETTINGS.allyHeadHue());
+        }
+        int settingsShift = dedicated ? -59 : 0;
         int divisor = GuildMarkClient.SETTINGS.bannerResolutionDivisor();
-        c.drawTextWithShadow(textRenderer, Text.literal(tr("BANNER RESOLUTION", "ROZDZIELCZOŚĆ BANNERÓW") + " · " + resolutionPercent(divisor) + " (÷" + divisor + ")"), x, y + 105, 0xFFB8A4CC);
-        renderResolutionSlider(c, x, y + 121, 480, divisor);
-        c.drawTextWithShadow(textRenderer, Text.literal(tr("Lower resolution uses less GPU memory. Source files stay unchanged.", "Niższa rozdzielczość zużywa mniej pamięci GPU. Pliki źródłowe bez zmian.")), x, y + 153, 0xFF8F829B);
+        c.drawTextWithShadow(textRenderer, Text.literal(tr("BANNER RESOLUTION", "ROZDZIELCZOŚĆ BANNERÓW") + " · " + resolutionPercent(divisor) + " (÷" + divisor + ")"), x, y + 105 + settingsShift, 0xFFB8A4CC);
+        renderResolutionSlider(c, x, y + 121 + settingsShift, 480, divisor);
+        c.drawTextWithShadow(textRenderer, Text.literal(tr("Lower resolution uses less GPU memory. Source files stay unchanged.", "Niższa rozdzielczość zużywa mniej pamięci GPU. Pliki źródłowe bez zmian.")), x, y + 153 + settingsShift, 0xFF8F829B);
         int renderDistance = GuildMarkClient.SETTINGS.cosmeticRenderDistance();
         int playerLimit = GuildMarkClient.SETTINGS.maxRenderedPlayers();
-        c.drawTextWithShadow(textRenderer, Text.literal(tr("RENDER DISTANCE", "ZASIĘG RENDEROWANIA") + " · " + renderDistanceLabel(renderDistance)), x, y + 178, 0xFFB8A4CC);
-        c.drawTextWithShadow(textRenderer, Text.literal(tr("NEAREST PLAYERS", "NAJBLIŻSI GRACZE") + " · " + playerLimitLabel(playerLimit)), x + 250, y + 178, 0xFFB8A4CC);
-        renderDistanceSlider(c, x, y + 194, 230, renderDistance);
-        renderPlayerLimitSlider(c, x + 250, y + 194, 230, playerLimit);
+        c.drawTextWithShadow(textRenderer, Text.literal(tr("RENDER DISTANCE", "ZASIĘG RENDEROWANIA") + " · " + renderDistanceLabel(renderDistance)), x, y + 178 + settingsShift, 0xFFB8A4CC);
+        c.drawTextWithShadow(textRenderer, Text.literal(tr("NEAREST PLAYERS", "NAJBLIŻSI GRACZE") + " · " + playerLimitLabel(playerLimit)), x + 250, y + 178 + settingsShift, 0xFFB8A4CC);
+        renderDistanceSlider(c, x, y + 194 + settingsShift, 230, renderDistance);
+        renderPlayerLimitSlider(c, x + 250, y + 194 + settingsShift, 230, playerLimit);
     }
 
     private void renderHueSlider(DrawContext c, int x, int y, int w, int hue) {
@@ -367,8 +560,30 @@ public final class GuildMarkScreen extends Screen {
     }
 
     private void renderAutoImport(DrawContext c, int x, int y, int mouseX, int mouseY) {
-        int panelWidth = Math.max(300, Math.min(540, width - x - 24));
-        CosmicUi.editorPanel(c, x - 10, y - 12, panelWidth, 126);
+        if (DedicatedServerMode.isActive()) {
+            int panelWidth = Math.max(300, Math.min(540, layoutWidth() - x - 24));
+            CosmicUi.editorPanel(c, x - 10, y - 12, panelWidth, 194);
+            c.drawTextWithShadow(textRenderer, Text.literal(tr("DEDICATED CAPE SERVER", "DEDYKOWANY SERWER PELERYN")), x, y, 0xFFDCCCF7);
+            String activeApi = GuildMarkClient.SETTINGS.dedicatedApiUrl();
+            String shownApi = activeApi.isBlank() ? tr("None", "Brak") : shorten(activeApi, 62);
+            c.drawTextWithShadow(textRenderer, Text.literal(tr("ACTIVE API: ", "AKTYWNE API: ") + shownApi), x, y + 78, activeApi.isBlank() ? 0xFF9A8AA8 : 0xFF71E99A);
+            CosmicUi.editorPanel(c, x, y + 94, 520, 42);
+            c.drawTextWithShadow(textRenderer, Text.literal("GuildMarks · mcextreme.pl"), x + 10, y + 101, 0xFFE2D5F5);
+            c.drawTextWithShadow(textRenderer, Text.literal(shorten(discoveredApiUrl, 50)), x + 10, y + 116, 0xFF9786A8);
+            String availability = recommendedApiAvailable == null ? tr("CHECKING", "SPRAWDZANIE")
+                : recommendedApiAvailable ? tr("AVAILABLE", "DOSTĘPNE") : tr("UNAVAILABLE", "NIEDOSTĘPNE");
+            int availabilityColor = recommendedApiAvailable == null ? 0xFFF0C75E : recommendedApiAvailable ? 0xFF71E99A : 0xFFFF7188;
+            c.drawTextWithShadow(textRenderer, Text.literal(availability), x + 315, y + 109, availabilityColor);
+            c.drawTextWithShadow(textRenderer, Text.literal(tr("Saving immediately refreshes capes and player assignments.", "Zapisanie od razu odświeża peleryny i przypisania graczy.")), x, y + 151, 0xFF8F829B);
+            String displayedApi = activeApi.isBlank() ? discoveredApiUrl : activeApi;
+            boolean plainHttp = displayedApi.toLowerCase(Locale.ROOT).startsWith("http://");
+            c.drawTextWithShadow(textRenderer, Text.literal(plainHttp
+                ? tr("HTTP is temporary and unencrypted; use HTTPS when available.", "HTTP jest tymczasowe i nieszyfrowane; przejdź na HTTPS, gdy będzie dostępne.")
+                : tr("HTTPS encrypts communication with the cape server.", "HTTPS szyfruje komunikację z serwerem peleryn.")), x, y + 166, plainHttp ? 0xFFFFA06B : 0xFF78DDA2);
+            return;
+        }
+        int panelWidth = Math.max(300, Math.min(540, layoutWidth() - x - 24));
+        CosmicUi.editorPanel(c, x - 10, y - 12, panelWidth, 196);
         c.drawTextWithShadow(textRenderer, Text.literal(tr("Import guilds and their marks from a JSON URL", "Importuj gildie i ich znaki z adresu JSON")), x, y, 0xFFDCCCF7);
         if (autoUpdateButton != null && autoUpdateButton.isHovered()) {
             c.drawTextWithShadow(textRenderer, Text.literal(tr("Checks at Minecraft startup and downloads updates", "Sprawdza przy starcie Minecrafta i pobiera aktualizacje")), x + 176, y + 76, 0xFFDCCCF7);
@@ -376,6 +591,8 @@ public final class GuildMarkScreen extends Screen {
         } else {
             c.drawTextWithShadow(textRenderer, Text.literal(tr("HTTPS only. Images are downloaded and stored locally.", "Tylko HTTPS. Grafiki są pobierane i zapisywane lokalnie.")), x + 176, y + 83, 0xFF998BA9);
         }
+        c.drawTextWithShadow(textRenderer, Text.literal(tr("DEDICATED SERVER API", "API SERWERA DEDYKOWANEGO")), x, y + 110, 0xFFB69AD6);
+        c.drawTextWithShadow(textRenderer, Text.literal(tr("Downloads player assignments every 5 minutes; proof is sent once per session.", "Pobiera przypisania co 5 minut; proof wysyła raz na sesję.")), x, y + 158, 0xFF8F829B);
     }
 
     private void renderAuthor(DrawContext c, int x, int y) {
@@ -477,7 +694,7 @@ public final class GuildMarkScreen extends Screen {
             URI uri = URI.create(raw);
             if (!"https".equalsIgnoreCase(uri.getScheme())) throw new IllegalArgumentException(tr("an HTTPS link is required", "wymagany jest link HTTPS"));
             GuildData.Guild targetGuild = GuildMarkClient.STORE.data().guilds.get(selectedGuild); status = tr("Downloading image…", "Pobieranie grafiki…");
-            HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(15)).header("Accept", "image/webp,image/png,image/jpeg,image/*").header("User-Agent", "GuildMark/1.0.2 Minecraft/1.21.8").GET().build();
+            HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(15)).header("Accept", "image/webp,image/png,image/jpeg,image/*").header("User-Agent", "GuildMark/1.1.1 Minecraft/1.21.8").GET().build();
             HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(6)).followRedirects(HttpClient.Redirect.NORMAL).build()
                 .sendAsync(request, HttpResponse.BodyHandlers.ofByteArray()).thenAccept(response -> client.execute(() -> {
                     try {
@@ -596,22 +813,113 @@ public final class GuildMarkScreen extends Screen {
         autoUpdateButton.setTextColor(enabled ? 0xFF6CF09A : 0xFFFF6579);
     }
 
+    private void connectDedicatedApi() {
+        try {
+            String normalized = DedicatedApiClient.normalizeApiUrl(apiInput == null ? "" : apiInput.getText());
+            apiInput.setText(normalized);
+            status = tr("Connecting to dedicated API…", "Łączenie z dedykowanym API…");
+            DedicatedApiClient.configure(normalized,
+                message -> status = message,
+                error -> status = tr("Dedicated API error: ", "Błąd dedykowanego API: ") + shorten(rootMessage(error), 48));
+        } catch (Exception error) {
+            status = tr("Dedicated API error: ", "Błąd dedykowanego API: ") + shorten(rootMessage(error), 48);
+        }
+    }
+
+    private boolean recommendedApiActive() {
+        try {
+            return DedicatedApiClient.normalizeApiUrl(discoveredApiUrl).equals(GuildMarkClient.SETTINGS.dedicatedApiUrl());
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private void toggleRecommendedApi() {
+        if (recommendedApiActive()) {
+            DedicatedApiClient.deactivate();
+            status = tr("Dedicated API deactivated", "Dezaktywowano dedykowane API");
+            init();
+            return;
+        }
+        if (!Boolean.TRUE.equals(recommendedApiAvailable)) {
+            status = tr("This API is currently unavailable", "To API jest obecnie niedostępne");
+            return;
+        }
+        if (apiInput != null) apiInput.setText(discoveredApiUrl);
+        connectDedicatedApi();
+        init();
+    }
+
+    private void updateProfilePickerButton() {
+        if (profilePickerButton == null) return;
+        String label = capePickerOpen ? tr("CLOSE CAPE LIST", "ZAMKNIJ LISTĘ PELERYN") : tr("CHOOSE CAPE", "WYBIERZ PELERYNĘ");
+        profilePickerButton.setMessage(Text.literal(label));
+    }
+
+    private void updateGlobalRenderButtons() {
+        updateGlobalButton(globalCapeButton, tr("CAPE", "PELERYNA"), GuildMarkClient.SETTINGS.renderCapeEnabled());
+        updateGlobalButton(globalChestButton, tr("CHEST", "KLATKA"), GuildMarkClient.SETTINGS.renderChestEnabled());
+        updateGlobalButton(globalHelmetButton, tr("HEAD", "GŁOWA"), GuildMarkClient.SETTINGS.renderHelmetEnabled());
+        updateGlobalButton(globalShieldButton, tr("SHIELD", "TARCZA"), GuildMarkClient.SETTINGS.renderShieldEnabled());
+        updateGlobalButton(globalElytraButton, "ELYTRA", GuildMarkClient.SETTINGS.renderElytraEnabled());
+    }
+
+    private static void updateGlobalButton(CosmicButton button, String label, boolean enabled) {
+        if (button == null) return;
+        button.setMessage(Text.literal(label + "  ·  " + (enabled ? "ON" : "OFF")));
+        button.setTextColor(enabled ? 0xFF6CF09A : 0xFFFF6579);
+    }
+
+    private List<GuildData.Guild> profileGuildChoices() {
+        return DedicatedApiClient.availableCapes().stream().map(DedicatedApiClient.Cape::guild).toList();
+    }
+
+    private void selectProfileGuild(GuildData.Guild guild) {
+        capePickerOpen = false;
+        updateProfilePickerButton();
+        String capeId = DedicatedApiClient.capeIdForGuild(guild);
+        status = tr("Verifying Minecraft profile…", "Weryfikowanie profilu Minecraft…");
+        DedicatedApiClient.selectCape(capeId,
+            message -> status = (guild == null ? tr("Profile cosmetic removed", "Usunięto kosmetyk profilu") : tr("Selected cosmetic: ", "Wybrano kosmetyk: ") + guild.name) + " · " + message,
+            error -> status = tr("Proof error: ", "Błąd proof: ") + shorten(rootMessage(error), 52));
+    }
+
+    public GuildData.Guild profilePreviewGuild() {
+        return DedicatedApiClient.guildForCapeId(GuildMarkClient.SETTINGS.dedicatedProfileCapeId());
+    }
+
+    public boolean isProfilePreview() { return DedicatedServerMode.isActive() && page == Page.PROFILE; }
+
+    public boolean overridesProfileGuild(String playerName) {
+        return isProfilePreview() && client != null && client.player != null && playerName != null
+            && client.player.getName().getString().equalsIgnoreCase(playerName);
+    }
+
     @Override public boolean mouseClicked(double mx, double my, int button) {
-        int left = Math.max(12, (width - 760) / 2), top = Math.max(12, (height - UI_HEIGHT) / 2);
+        mx = layoutMouse(mx); my = layoutMouse(my);
+        int left = Math.max(12, (layoutWidth() - UI_WIDTH) / 2), top = Math.max(12, (layoutHeight() - UI_HEIGHT) / 2);
+        if (page == Page.PROFILE && button == 0) {
+            if (capePickerOpen && handleProfileGridClick(mx, my, left, top)) return true;
+            if (mx >= left + 208 && mx <= left + 430 && my >= top + 92 && my <= top + 328) { draggingModel = true; return true; }
+        }
         if (page == Page.MAP && button == 0 && handleMapRelationClick(mx, my, left, top)) return true;
         if (page == Page.SETTINGS && button == 0) {
-            int sliderY = top + 221;
-            if (mx >= left + 190 && mx <= left + 420 && my >= sliderY && my <= sliderY + 14) {
-                draggingOwnHeadHue = true; updateHeadHue(mx, left + 190, true); return true;
+            boolean dedicated = DedicatedServerMode.isActive();
+            if (!dedicated) {
+                int sliderY = top + 221;
+                if (mx >= left + 190 && mx <= left + 420 && my >= sliderY && my <= sliderY + 14) {
+                    draggingOwnHeadHue = true; updateHeadHue(mx, left + 190, true); return true;
+                }
+                if (mx >= left + 440 && mx <= left + 670 && my >= sliderY && my <= sliderY + 14) {
+                    draggingAllyHeadHue = true; updateHeadHue(mx, left + 440, false); return true;
+                }
             }
-            if (mx >= left + 440 && mx <= left + 670 && my >= sliderY && my <= sliderY + 14) {
-                draggingAllyHeadHue = true; updateHeadHue(mx, left + 440, false); return true;
-            }
-            int resolutionY = top + 269;
+            int settingsShift = dedicated ? -59 : 0;
+            int resolutionY = top + 269 + settingsShift;
             if (mx >= left + 190 && mx <= left + 670 && my >= resolutionY && my <= resolutionY + 14) {
                 draggingBannerResolution = true; updateBannerResolution(mx, left + 190); return true;
             }
-            int renderDistanceY = top + 342;
+            int renderDistanceY = top + 342 + settingsShift;
             if (mx >= left + 190 && mx <= left + 420 && my >= renderDistanceY && my <= renderDistanceY + 14) {
                 draggingRenderDistance = true; updateRenderDistance(mx, left + 190); return true;
             }
@@ -627,12 +935,27 @@ public final class GuildMarkScreen extends Screen {
             if (row < 4 && visibleIndex < filtered.size()) { int guildIndex = filtered.get(visibleIndex); if (selectedGuild == guildIndex) { selectedGuild = -1; status = tr("All guilds mode", "Tryb wszystkich gildii"); } else { selectedGuild = guildIndex; status = tr("Selected ", "Wybrano ") + GuildMarkClient.STORE.data().guilds.get(guildIndex).name; } }
             return true;
         }
-        if (mx >= left + 34 && mx <= left + 150 && my >= top + 50 && my <= top + 180) { draggingModel = true; return true; }
+        if (!DedicatedServerMode.isActive() && mx >= left + 34 && mx <= left + 150 && my >= top + 50 && my <= top + 180) { draggingModel = true; return true; }
         return super.mouseClicked(mx, my, button);
     }
 
+    private boolean handleProfileGridClick(double mouseX, double mouseY, int left, int top) {
+        int pickerX = left + 460, pickerY = top + 120;
+        if (mouseX < pickerX + 8 || mouseX >= pickerX + 248 || mouseY < pickerY + 27 || mouseY >= pickerY + 227) return false;
+        int col = (int)(mouseX - pickerX - 8) / 80;
+        int row = (int)(mouseY - pickerY - 27) / 100;
+        if (col < 0 || col > 2 || row < 0 || row > 1) return false;
+        int localX = (int)(mouseX - pickerX - 8) % 80, localY = (int)(mouseY - pickerY - 27) % 100;
+        if (localX >= 74 || localY >= 92) return false;
+        List<GuildData.Guild> choices = profileGuildChoices();
+        int index = profileGridScroll * 3 + row * 3 + col;
+        if (index >= choices.size()) return false;
+        selectProfileGuild(choices.get(index));
+        return true;
+    }
+
     private boolean handleMapRelationClick(double mouseX, double mouseY, int left, int top) {
-        int x = left + 190, y = top + 58, right = Math.min(width - 12, left + 760) - 14;
+        int x = left + 190, y = top + 58, right = Math.min(layoutWidth() - 12, left + UI_WIDTH) - 14;
         int relationStart = right - 153, yy = y - scroll;
         for (GuildData.Guild guild : GuildMarkClient.STORE.data().guilds) {
             int h = 38 + ((guild.players.size() + 4) / 5) * 66;
@@ -657,30 +980,38 @@ public final class GuildMarkScreen extends Screen {
         status = guild.name + tr(": relation ", ": relacja ") + label;
     }
     @Override public boolean mouseDragged(double mx, double my, int button, double dx, double dy) {
+        double scale = responsiveUiScale();
+        mx /= scale; my /= scale; dx /= scale; dy /= scale;
         if (draggingBannerResolution && button == 0) {
-            int left = Math.max(12, (width - 760) / 2);
+            int left = Math.max(12, (layoutWidth() - UI_WIDTH) / 2);
             updateBannerResolution(mx, left + 190);
             return true;
         }
         if (draggingRenderDistance && button == 0) {
-            int left = Math.max(12, (width - 760) / 2);
+            int left = Math.max(12, (layoutWidth() - UI_WIDTH) / 2);
             updateRenderDistance(mx, left + 190);
             return true;
         }
         if (draggingPlayerLimit && button == 0) {
-            int left = Math.max(12, (width - 760) / 2);
+            int left = Math.max(12, (layoutWidth() - UI_WIDTH) / 2);
             updatePlayerLimit(mx, left + 440);
             return true;
         }
         if ((draggingOwnHeadHue || draggingAllyHeadHue) && button == 0) {
-            int left = Math.max(12, (width - 760) / 2);
+            int left = Math.max(12, (layoutWidth() - UI_WIDTH) / 2);
             updateHeadHue(mx, draggingOwnHeadHue ? left + 190 : left + 440, draggingOwnHeadHue);
             return true;
         }
-        if (draggingEditorScrollbar && button == 0) { int top = Math.max(12, (height - UI_HEIGHT) / 2); setEditorScrollFromMouse(my, top + 114); return true; }
-        if (draggingModel) { modelYaw += (float)dx; return true; } return super.mouseDragged(mx, my, button, dx, dy);
+        if (draggingEditorScrollbar && button == 0) { int top = Math.max(12, (layoutHeight() - UI_HEIGHT) / 2); setEditorScrollFromMouse(my, top + 114); return true; }
+        if (draggingModel) {
+            modelYaw = (modelYaw + (float)dx * 1.2F) % 360.0F;
+            modelPitch = Math.max(-30.0F, Math.min(30.0F, modelPitch - (float)dy * 0.6F));
+            return true;
+        }
+        return super.mouseDragged(mx, my, button, dx, dy);
     }
     @Override public boolean mouseReleased(double mx, double my, int button) {
+        mx = layoutMouse(mx); my = layoutMouse(my);
         boolean savedHue = draggingOwnHeadHue || draggingAllyHeadHue;
         boolean savedResolution = draggingBannerResolution;
         boolean savedRenderDistance = draggingRenderDistance;
@@ -698,9 +1029,15 @@ public final class GuildMarkScreen extends Screen {
         return super.mouseReleased(mx, my, button);
     }
     @Override public boolean mouseScrolled(double mx, double my, double horizontal, double vertical) {
+        mx = layoutMouse(mx); my = layoutMouse(my);
+        if (page == Page.PROFILE && capePickerOpen) {
+            int rows = (profileGuildChoices().size() + 2) / 3;
+            profileGridScroll = clamp(profileGridScroll + (vertical < 0 ? 1 : -1), 0, Math.max(0, rows - 2));
+            return true;
+        }
         if (page == Page.MAP) { scroll = Math.max(0, scroll + (vertical < 0 ? 30 : -30)); return true; }
         if (page == Page.EDITOR) {
-            int left = Math.max(12, (width - 760) / 2), top = Math.max(12, (height - UI_HEIGHT) / 2);
+            int left = Math.max(12, (layoutWidth() - UI_WIDTH) / 2), top = Math.max(12, (layoutHeight() - UI_HEIGHT) / 2);
             if (mx >= left + 190 && mx <= left + 369 && my >= top + 108 && my <= top + 206) {
                 int max = Math.max(0, filteredGuildIndices().size() - 4);
                 editorGuildScroll = clamp(editorGuildScroll + (vertical < 0 ? 1 : -1), 0, max); return true;
@@ -767,11 +1104,11 @@ public final class GuildMarkScreen extends Screen {
             status = tr("Link error: ", "Błąd linku: ") + shorten(rootMessage(error), 54);
         }
     }
-    private boolean isErrorStatus() {
-        String lower = status.toLowerCase(Locale.ROOT);
+    private boolean isErrorStatus(String value) {
+        String lower = value.toLowerCase(Locale.ROOT);
         return lower.contains("error") || lower.contains("błąd");
     }
-    private String titleForPage() { return switch(page) { case MAP -> tr("GUILD MAP", "MAPA GILDII"); case SETTINGS -> tr("SETTINGS", "USTAWIENIA"); case EDITOR -> tr("GUILD EDITOR", "EDYTOR GILDII"); case AUTO_IMPORT -> "AUTO IMPORT"; case AUTHOR -> tr("ABOUT THE AUTHOR", "O AUTORZE"); }; }
+    private String titleForPage() { return switch(page) { case PROFILE -> tr("PROFILE", "PROFIL"); case RENDER -> "RENDER"; case MAP -> tr("GUILD MAP", "MAPA GILDII"); case SETTINGS -> tr("SETTINGS", "USTAWIENIA"); case EDITOR -> tr("GUILD EDITOR", "EDYTOR GILDII"); case AUTO_IMPORT -> "AUTO IMPORT"; case AUTHOR -> tr("ABOUT THE AUTHOR", "O AUTORZE"); }; }
     private static void panel(DrawContext c, int x1, int y1, int x2, int y2, int fill, int border) {
         int w = x2 - x1, h = y2 - y1, radius = Math.min(12, Math.max(4, Math.min(w, h) / 8));
         CosmicUi.shadow(c, x1, y1, w, h, radius, border, .55f);

@@ -1,0 +1,23 @@
+{
+  "formatVersion": 1,
+  "guilds": [
+    {
+      "id": "asceria",
+      "name": "Asceria",
+      "file": "Asceria.png",
+      "image": "https://raw.githubusercontent.com/Slogerski/GuildMarks/refs/heads/main/Servers/mcextreme/Graphics/Asceria.png"
+    },
+    {
+      "id": "biala-furia",
+      "name": "Biała Furia",
+      "file": "bialafuria.png",
+      "image": "https://raw.githubusercontent.com/Slogerski/GuildMarks/refs/heads/main/Servers/mcextreme/Graphics/bialafuria.png"
+    },
+    {
+      "id": "tester",
+      "name": "Tester",
+      "file": "tester.png",
+      "image": "https://raw.githubusercontent.com/Slogerski/GuildMarks/refs/heads/main/Servers/mcextreme/Graphics/tester.png"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "formatVersion": 1,
+  "maxRequests": 10,
+  "windowSeconds": 600,
+  "blockDurationsSeconds": [900, 900, 900, 1800, 1800, 1800, 3600],
+  "offenseResetSeconds": 604800,
+  "reloadCheckSeconds": 60
+}

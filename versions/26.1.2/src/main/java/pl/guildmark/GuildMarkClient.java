@@ -36,6 +36,7 @@ public final class GuildMarkClient implements ClientModInitializer {
         openKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.guildmark.open", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_G, KEY_CATEGORY));
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             GuildRenderLimiter.tick(client);
+            DedicatedApiClient.tick();
             if (!startupUpdateChecked) {
                 startupUpdateChecked = true;
                 startAutomaticUpdate();

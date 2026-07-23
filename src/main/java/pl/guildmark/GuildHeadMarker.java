@@ -14,8 +14,10 @@ public final class GuildHeadMarker {
     private GuildHeadMarker() {}
 
     public static Kind kind(String targetPlayerName) {
+        if (DedicatedServerMode.isActive()) return Kind.NONE;
         MinecraftClient client = MinecraftClient.getInstance();
-        if (client.currentScreen instanceof GuildMarkScreen) return Kind.NONE;
+        if (!GuildMarkFeatureRenderer.globalHelmetEnabled()) return Kind.NONE;
+        if (client.currentScreen instanceof GuildMarkScreen screen && !screen.isProfilePreview()) return Kind.NONE;
         GuildData.Guild targetGuild = GuildMarkFeatureRenderer.guildFor(targetPlayerName);
         if (targetGuild == null || !targetGuild.showOnHelmet) return Kind.NONE;
         if ("own".equals(targetGuild.relation)) return Kind.OWN;

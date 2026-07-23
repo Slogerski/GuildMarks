@@ -11,6 +11,7 @@ public final class GuildShieldRenderContext {
 
     public static void begin(AvatarRenderState state, ItemStack stack) {
         clear();
+        if (!GuildMarkFeatureRenderer.globalShieldEnabled()) return;
         if (!GuildMarkFeatureRenderer.shouldRenderCosmetics(state)) return;
         if (!stack.is(Items.SHIELD)) return;
         GuildData.Guild guild = GuildMarkFeatureRenderer.guildFor(GuildMarkFeatureRenderer.playerName(state));

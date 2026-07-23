@@ -20,15 +20,26 @@ crash-reports/
 Thumbs.db
 desktop.ini
 
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.venv/
+
 # Local configuration and secrets
 .env
 .env.*
 config/
 
 # Built release artifacts (uploaded through GitHub Releases)
-release/modrinth/*.jar
+/release/
 *.jar
 !gradle/wrapper/gradle-wrapper.jar
 
+# Local development servers and test data
+/dev/
+
 # Local publishing helper
 /push-servers.bat
+/server-python/.venv/
+/server-python/*.sqlite*
+/server-python/.env

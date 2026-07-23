@@ -13,6 +13,7 @@ public final class GuildShieldRenderContext {
 
     public static void begin(PlayerEntityRenderState state, Arm arm) {
         clear();
+        if (!GuildMarkFeatureRenderer.globalShieldEnabled()) return;
         if (!GuildMarkFeatureRenderer.shouldRenderCosmetics(state)) return;
         MinecraftClient client = MinecraftClient.getInstance();
         if (client.world == null) return;

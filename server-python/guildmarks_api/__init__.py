@@ -1,0 +1,1 @@
+"""GuildMarks dedicated API."""

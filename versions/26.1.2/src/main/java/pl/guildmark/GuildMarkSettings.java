@@ -27,6 +27,13 @@ public final class GuildMarkSettings {
     public int maxRenderedPlayers() { return normalizePlayerLimit(data.maxRenderedPlayers); }
     public String autoImportUrl() { return data.autoImportUrl == null ? "" : data.autoImportUrl; }
     public boolean autoUpdateEnabled() { return data.autoUpdateEnabled; }
+    public String dedicatedProfileCapeId() { return data.dedicatedProfileCapeId == null ? "" : data.dedicatedProfileCapeId; }
+    public String dedicatedApiUrl() { return data.dedicatedApiUrl == null ? "" : data.dedicatedApiUrl; }
+    public boolean renderChestEnabled() { return data.renderChestEnabled; }
+    public boolean renderHelmetEnabled() { return data.renderHelmetEnabled; }
+    public boolean renderCapeEnabled() { return data.renderCapeEnabled; }
+    public boolean renderShieldEnabled() { return data.renderShieldEnabled; }
+    public boolean renderElytraEnabled() { return data.renderElytraEnabled; }
     public int ownHeadColor() { return colorForHue(ownHeadHue(), 0.94F); }
     public int allyHeadColor() { return colorForHue(allyHeadHue(), 1.0F); }
 
@@ -44,6 +51,13 @@ public final class GuildMarkSettings {
     public void setMaxRenderedPlayers(int players) { data.maxRenderedPlayers = normalizePlayerLimit(players); }
     public void setAutoImportUrl(String url) { data.autoImportUrl = url == null ? "" : url.strip(); save(); }
     public void setAutoUpdateEnabled(boolean enabled) { data.autoUpdateEnabled = enabled; save(); }
+    public void setDedicatedProfileCapeId(String capeId) { data.dedicatedProfileCapeId = capeId == null ? "" : capeId.strip(); save(); }
+    public void setDedicatedApiUrl(String url) { data.dedicatedApiUrl = url == null ? "" : url.strip(); save(); }
+    public void setRenderChestEnabled(boolean enabled) { data.renderChestEnabled = enabled; save(); }
+    public void setRenderHelmetEnabled(boolean enabled) { data.renderHelmetEnabled = enabled; save(); }
+    public void setRenderCapeEnabled(boolean enabled) { data.renderCapeEnabled = enabled; save(); }
+    public void setRenderShieldEnabled(boolean enabled) { data.renderShieldEnabled = enabled; save(); }
+    public void setRenderElytraEnabled(boolean enabled) { data.renderElytraEnabled = enabled; save(); }
     public boolean autoUpdateDue(long now) {
         long previous = data.lastAutoUpdateEpochMillis;
         return data.autoUpdateEnabled && !autoImportUrl().isBlank() && (previous <= 0L || now < previous || now - previous >= AUTO_UPDATE_INTERVAL_MILLIS);
@@ -77,7 +91,15 @@ public final class GuildMarkSettings {
                 if (data.formatVersion < 4) data.autoUpdateEnabled = true;
                 if (data.formatVersion < 5) data.cosmeticRenderDistance = 128;
                 if (data.formatVersion < 6) data.maxRenderedPlayers = 64;
-                data.formatVersion = 6;
+                if (data.formatVersion < 7) {
+                    data.renderChestEnabled = true;
+                    data.renderHelmetEnabled = true;
+                    data.renderCapeEnabled = true;
+                    data.renderShieldEnabled = true;
+                    data.renderElytraEnabled = true;
+                }
+                if (data.formatVersion < 8) data.dedicatedProfileCapeId = "";
+                data.formatVersion = 9;
                 data.language = "pl".equalsIgnoreCase(data.language) ? "pl" : "en";
                 data.ownHeadHue = normalizeHue(data.ownHeadHue);
                 data.allyHeadHue = normalizeHue(data.allyHeadHue);
@@ -85,6 +107,8 @@ public final class GuildMarkSettings {
                 data.cosmeticRenderDistance = normalizeRenderDistance(data.cosmeticRenderDistance);
                 data.maxRenderedPlayers = normalizePlayerLimit(data.maxRenderedPlayers);
                 if (data.autoImportUrl == null) data.autoImportUrl = "";
+                if (data.dedicatedProfileCapeId == null) data.dedicatedProfileCapeId = "";
+                if (data.dedicatedApiUrl == null) data.dedicatedApiUrl = "";
             } else save();
         } catch (Exception error) {
             data = new Data();
@@ -108,7 +132,7 @@ public final class GuildMarkSettings {
     }
 
     private static final class Data {
-        int formatVersion = 6;
+        int formatVersion = 9;
         String language = "en";
         int ownHeadHue = 136;
         int allyHeadHue = 49;
@@ -118,5 +142,12 @@ public final class GuildMarkSettings {
         String autoImportUrl = "";
         boolean autoUpdateEnabled = true;
         long lastAutoUpdateEpochMillis;
+        String dedicatedProfileCapeId = "";
+        String dedicatedApiUrl = "";
+        boolean renderChestEnabled = true;
+        boolean renderHelmetEnabled = true;
+        boolean renderCapeEnabled = true;
+        boolean renderShieldEnabled = true;
+        boolean renderElytraEnabled = true;
     }
 }

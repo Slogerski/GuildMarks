@@ -53,7 +53,18 @@ Guild data is stored in `.minecraft/config/guildmark/guilds.json`. Downloaded gu
 
 For remote imports, `markUrl` must use HTTPS. GuildMark downloads and validates each image, saves it locally, and fills in `markFile` and `markPath`. Existing local data stays active if an import cannot be completed.
 
-See [auto-import-example.json](release/modrinth/auto-import-example.json) for a complete example.
+See [auto-import-example.json](examples/auto-import-example.json) for a complete example.
+
+## Network communication
+
+GuildMark has no analytics or telemetry. Network requests are limited to features visible in the interface:
+
+- Remote import downloads the JSON address selected by the user and the image addresses listed in that JSON.
+- Player previews request public Minecraft profile and skin data from Mojang services.
+- On `mcextreme.pl`, opening Auto Import with no saved API address checks the displayed recommended API address once and asks before saving it. On a supported dedicated server, GuildMark downloads the available cape catalog and active public player assignments from the API address accepted or saved by the user.
+- Selecting a dedicated-server cape sends the cape ID to that API, submits the Minecraft session proof directly to Mojang through Minecraft's session service, and then sends the returned challenge ID with the public Minecraft username to the API.
+
+The Microsoft/Minecraft access token is passed only to Minecraft's official session service and is never included in a request to the configured GuildMark API. The dedicated API never receives a password. HTTP API addresses are supported temporarily but are shown as unencrypted in the interface; HTTPS is recommended.
 
 ## Building
 
@@ -66,8 +77,8 @@ The Gradle wrapper downloads the required build tools automatically.
 
 The scripts create:
 
-- `release/modrinth/GuildMark-1.21.8-1.0.2.jar`
-- `release/modrinth/GuildMark-26.1.2-1.0.2.jar`
+- `release/modrinth/GuildMark-1.21.8-1.1.1.jar`
+- `release/modrinth/GuildMark-26.1.2-1.1.1.jar`
 
 Linux and macOS users can run `./gradlew clean remapJar` and `./gradlew -p versions/26.1.2 clean jar`.
 
